@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.env
+.env*
+*.sqlite3
+*.db
+*.log
+*.pot
+*.mo
+*.swp
+*.swo
+*.bak
+*.tmp
+*.old
+*.orig
+*.rej
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# VS Code
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# System
+Thumbs.db
+
+# Audio uploads and generated files
+uploads/
+*.webm
+*.wav
+*.mp3
+
+# Node
+node_modules/
+
+# Favicon
+app/static/favicon.ico
+
+# Other
+*.egg-info/
+dist/
+build/
+*.tar.gz
+*.zip
+*.coverage
+.coverage.*
+htmlcov/
+
+# Test output
+*.out
+*.err
+
+# Docker
+*.pid
+
+# Ignore requirements lock files
+requirements.lock
+
+# Ignore virtual environments
+venv/
+ENV/
+.env/
+.venv/

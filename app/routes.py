@@ -68,6 +68,7 @@ def register_socketio_events(socketio):
 
             language = 'en'
             question = ''
+            webm_filename=''
             is_webm = False
             if payload:
                 language = payload.get('language', 'en')

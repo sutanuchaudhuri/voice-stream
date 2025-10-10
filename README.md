@@ -208,5 +208,39 @@ All Python dependencies are listed in `requirements.txt`.
 
 ---
 
+## GitHub Repository
+
+The source code is available at: [https://github.com/sutanuchaudhuri/voice-stream](https://github.com/sutanuchaudhuri/voice-stream)
+
+Feel free to star, fork, and contribute!
+
+---
+
+## Possible Extensions and Improvements
+
+### 1. Noise Cancellation
+- Integrate WebRTC or third-party libraries (e.g., RNNoise, WebAudio denoising) in the browser to pre-process audio and reduce background noise before sending to the backend.
+- Use server-side denoising models (e.g., DeepFilterNet, Demucs) to clean audio before transcription.
+- Add a toggle in the UI to enable/disable noise cancellation.
+
+### 2. Multiple Users Talking (Speaker Diarization)
+- Integrate speaker diarization models (e.g., pyAudioAnalysis, pyannote-audio) on the backend to segment and label different speakers in the audio.
+- Display transcriptions with speaker labels in the UI.
+- Optionally, visualize speaker turns in the transcript.
+
+### 3. Training Custom Speech-to-Text Models
+- Collect user audio and transcripts (with consent) to fine-tune open-source ASR models (e.g., Whisper, Wav2Vec2) for domain-specific vocabulary or accents.
+- Integrate with Hugging Face Transformers or OpenAI fine-tuning APIs.
+- Allow users to upload custom datasets for training.
+
+### 4. Other Ideas
+- Add support for more languages and dialects.
+- Real-time translation of transcribed text.
+- User authentication and history of transcriptions.
+- Mobile-friendly UI and PWA support.
+- Analytics dashboard for usage and accuracy.
+
+---
+
 ## License
 MIT License

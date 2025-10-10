@@ -244,3 +244,87 @@ Feel free to star, fork, and contribute!
 
 ## License
 MIT License
+
+---
+
+## Server-Side Denoising Tool Installation
+
+To enable server-side noise cancellation (DeepFilterNet or Demucs), you must install the required tools and their dependencies:
+
+### 1. Install Rust and Cargo (Required for DeepFilterNet)
+
+DeepFilterNet requires the Rust toolchain to build native extensions.
+
+#### On macOS or Linux:
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+```
+
+#### On Ubuntu/Debian:
+```bash
+sudo apt update
+sudo apt install curl
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+```
+
+#### On Windows:
+- Download and run the installer from: https://rustup.rs/
+- After installation, restart your terminal (Command Prompt, PowerShell, or Git Bash).
+
+#### Verify Installation
+```bash
+rustc --version
+cargo --version
+```
+Both should print a version number.
+
+---
+
+### 2. Install Python Requirements (Including Denoising Tools)
+
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+This will install DeepFilterNet and Demucs, along with all other dependencies.
+
+---
+
+### 3. Test DeepFilterNet
+
+To verify DeepFilterNet is installed and available:
+```bash
+deepfilternet --input input.wav --output output.wav
+```
+This should denoise `input.wav` and write the result to `output.wav`.
+
+---
+
+### 4. Troubleshooting
+- If you get a “command not found” error, ensure your Python scripts directory (where `deepfilternet` or `demucs` is installed) is in your system PATH. On Unix-like systems, this is usually `~/.local/bin` or your virtual environment’s `bin` directory.
+- Add it to your PATH in your shell profile:
+  ```bash
+  export PATH=$PATH:~/.local/bin
+  ```
+- Make sure your Python environment is 64-bit and Python version is >=3.8.
+- If you use a virtual environment, activate it before installing.
+
+---
+
+### 5. Optional: Demucs for Music/General Audio
+
+If you want to use Demucs for music or general audio denoising:
+```bash
+pip install demucs
+```
+Test with:
+```bash
+demucs --two-stems=vocals input.wav
+```
+
+---
+
+After installation, the backend will automatically use DeepFilterNet (or Demucs, if you adapt the code) for denoising when the "Noise Cancellation" toggle is enabled in the UI.

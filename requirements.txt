@@ -1,4 +1,3 @@
-
 flask
 requests
 flask-socketio
@@ -8,3 +7,8 @@ langchain
 openai
 langchain-community
 langchain-openai
+# For server-side denoising tools
+# DeepFilterNet (speech denoising)
+deepfilternet
+# Demucs (music/general audio separation/denoising)
+demucs

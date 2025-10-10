@@ -67,8 +67,10 @@ def register_socketio_events(socketio):
             question = ''
             webm_filename=''
             is_webm = False
+            noise_cancellation = False
             if payload:
                 language = payload.get('language', 'en')
+                noise_cancellation = payload.get('noise_cancellation', False)
                 if 'audio' in payload:
                     # Audio input
                     audio_bytes = io.BytesIO(base64.b64decode(payload['audio']))
@@ -89,6 +91,17 @@ def register_socketio_events(socketio):
                                     "ffmpeg", "-y", "-i", "pipe:0", "-ar", "16000", "-ac", "1", "-f", "wav", "pipe:1"
                                 ], input=webm_in.read(), stdout=wav_out)
                         print(f"[DEBUG] Saved wav file: {wav_filename}", file=sys.stderr)
+
+                        # If noise cancellation is requested, run denoising (e.g., DeepFilterNet)
+                        if noise_cancellation:
+                            denoised_wav_filename = wav_filename.replace('.wav', '_denoised.wav')
+                            try:
+                                subprocess.run([
+                                    'deepfilternet', '--input', wav_filename, '--output', denoised_wav_filename
+                                ], check=True)
+                                wav_filename = denoised_wav_filename
+                            except Exception as e:
+                                print(f"[WARN] Denoising failed: {e}", file=sys.stderr)
 
                         # Transcribe wav file
                         with open(wav_filename, "rb") as wav_file:
@@ -131,6 +144,8 @@ def register_socketio_events(socketio):
                 try:
                     os.remove(webm_filename)
                     os.remove(wav_filename)
+                    if noise_cancellation:
+                        os.remove(denoised_wav_filename)
                     print(f"[DEBUG] Deleted files for session: {sid}", file=sys.stderr)
                 except Exception as del_err:
                     print(f"[ERROR] Could not delete files: {del_err}", file=sys.stderr)
@@ -158,6 +173,7 @@ def tts_stream():
         data = request.get_json()
         audio_b64 = data.get('audio')
         language = data.get('language', 'en')
+        noise_cancellation = data.get('noise_cancellation', False)
         if not audio_b64:
             return jsonify({'error': 'No audio provided'}), 400
         import base64
@@ -175,6 +191,16 @@ def tts_stream():
             subprocess.run([
                 'ffmpeg', '-y', '-i', 'pipe:0', '-ar', '16000', '-ac', '1', '-f', 'wav', 'pipe:1'
             ], input=webm_in.read(), stdout=wav_out)
+        # If noise cancellation is requested, run denoising (e.g., DeepFilterNet)
+        if noise_cancellation:
+            denoised_wav_path = wav_path.replace('.wav', '_denoised.wav')
+            try:
+                subprocess.run([
+                    'deepfilternet', '--input', wav_path, '--output', denoised_wav_path
+                ], check=True)
+                wav_path = denoised_wav_path
+            except Exception as e:
+                print(f"[WARN] Denoising failed: {e}")
         # Transcribe wav file
         with open(wav_path, 'rb') as wav_file:
             transcription = transcribe_audio(wav_file, language)
@@ -182,6 +208,8 @@ def tts_stream():
         try:
             os.remove(webm_path)
             os.remove(wav_path)
+            if noise_cancellation:
+                os.remove(denoised_wav_path)
         except Exception:
             pass
         return jsonify({'partial_text': transcription.get('text', '')})

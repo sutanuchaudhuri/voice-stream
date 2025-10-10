@@ -21,6 +21,13 @@ window.toggleStreamingUI = function() {
 if (typeof window !== 'undefined') {
     window.addEventListener('DOMContentLoaded', function() {
         window.toggleStreamingUI();
+        const pauseSlider = document.getElementById('pause-interval');
+        const pauseValue = document.getElementById('pause-interval-value');
+        if (pauseSlider && pauseValue) {
+            pauseSlider.addEventListener('input', function() {
+                pauseValue.textContent = parseFloat(pauseSlider.value).toFixed(1);
+            });
+        }
     });
 }
 
@@ -91,7 +98,8 @@ window.startRecording = function() {
                     if (Date.now() - silenceStart > silenceDuration) {
                         // Detected silence for required duration, stop recording
                         stream.getTracks().forEach(track => track.stop());
-                        window.stopRecording();
+                        // Instead of just calling stopRecording, trigger answer/TTS flow
+                        handleStreamingAutoStop();
                         audioContext.close();
                         document.getElementById('pause-timer').innerText = '';
                         if (timerInterval) clearInterval(timerInterval);
@@ -121,6 +129,12 @@ window.startRecording = function() {
         });
 };
 
+// Helper to get noise cancellation flag
+function isNoiseCancellationEnabled() {
+    const noiseToggle = document.getElementById('noise-cancel-toggle');
+    return noiseToggle && noiseToggle.checked;
+}
+
 // Send a single audio chunk to the streaming endpoint
 function sendAudioChunkStreaming(blob) {
     const reader = new FileReader();
@@ -131,7 +145,11 @@ function sendAudioChunkStreaming(blob) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ audio: base64data, language: window._selectedLanguage })
+            body: JSON.stringify({
+                audio: base64data,
+                language: window._selectedLanguage,
+                noise_cancellation: isNoiseCancellationEnabled()
+            })
         })
         .then(response => response.json())
         .then(data => {
@@ -164,7 +182,11 @@ window.stopRecording = function() {
                 // Convert audio to base64 and emit to server via socket
                 let base64data = btoa(String.fromCharCode(...new Uint8Array(reader.result)));
                 const language = window._selectedLanguage || 'en';
-                socket.emit('audio_blob', JSON.stringify({audio: base64data, language: language}));
+                socket.emit('audio_blob', JSON.stringify({
+                    audio: base64data,
+                    language: language,
+                    noise_cancellation: isNoiseCancellationEnabled()
+                }));
                 document.getElementById('result').innerText = 'Uploading audio...';
             };
             reader.readAsArrayBuffer(lastAudioBlob);
@@ -218,6 +240,25 @@ socket.on('transcription_update', function(data) {
         }
     }
 });
+
+// Handle auto-stop in streaming mode: send question for answer and TTS
+function handleStreamingAutoStop() {
+    window.stopRecording(); // This will finalize the audio and emit as usual
+    // After a short delay, trigger answer/TTS if question is present
+    setTimeout(function() {
+        const question = document.getElementById('question-box').value.trim();
+        const inputLanguage = document.getElementById('input-language');
+        const language = inputLanguage ? inputLanguage.value : 'en';
+        if (question) {
+            socket.emit('audio_blob', JSON.stringify({
+                text: question,
+                language: language,
+                noise_cancellation: isNoiseCancellationEnabled()
+            }));
+            document.getElementById('result').innerText = 'Submitting question...';
+        }
+    }, 500);
+}
 
 // DOMContentLoaded: Setup UI event handlers and input mode switching
 document.addEventListener('DOMContentLoaded', function() {

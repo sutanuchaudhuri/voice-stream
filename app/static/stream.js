@@ -1,21 +1,55 @@
+// Initialize socket.io connection
 let socket = io();
+// MediaRecorder instance for audio capture
 let mediaRecorder;
+// Array to store audio chunks
 let audioChunks = [];
+// Timeout for auto-stopping recording
 let recordingTimeout;
+// Last recorded audio blob
 let lastAudioBlob;
 
+// Toggle UI elements based on streaming checkbox
+window.toggleStreamingUI = function() {
+    const useStreaming = document.getElementById('use-streaming').checked;
+    document.getElementById('pause-interval-group').style.display = useStreaming ? '' : 'none';
+    document.getElementById('stop-recording-btn').style.display = useStreaming ? 'none' : '';
+    document.getElementById('pause-timer').innerText = '';
+};
+
+// Call toggleStreamingUI on page load to set initial state
+if (typeof window !== 'undefined') {
+    window.addEventListener('DOMContentLoaded', function() {
+        window.toggleStreamingUI();
+    });
+}
+
+// Start recording audio from the user's microphone
 window.startRecording = function() {
     document.getElementById('recording-cue').style.display = 'block';
     audioChunks = [];
     const inputLanguage = document.getElementById('input-language');
     window._selectedLanguage = inputLanguage ? inputLanguage.value : 'en';
+    const useStreaming = document.getElementById('use-streaming').checked;
+    let pauseInterval = 1.0;
+    if (useStreaming) {
+        const intervalInput = document.getElementById('pause-interval');
+        pauseInterval = parseFloat(intervalInput && intervalInput.value ? intervalInput.value : '1.0');
+        if (isNaN(pauseInterval) || pauseInterval < 0.1) pauseInterval = 1.0;
+    }
     navigator.mediaDevices.getUserMedia({ audio: true })
         .then(stream => {
+            // Create a MediaRecorder for the audio stream
             mediaRecorder = new MediaRecorder(stream);
             mediaRecorder.start();
+            // On each available audio chunk
             mediaRecorder.ondataavailable = e => {
                 if (e.data.size > 0) {
                     audioChunks.push(e.data);
+                    if (useStreaming) {
+                        // Send chunk to streaming endpoint in real time
+                        sendAudioChunkStreaming(e.data);
+                    }
                 }
             };
 
@@ -27,9 +61,22 @@ window.startRecording = function() {
             analyser.fftSize = 2048;
             const dataArray = new Uint8Array(analyser.fftSize);
             let silenceStart = null;
-            let silenceThreshold = 0.01; // Adjust as needed
-            let silenceDuration = 1000; // ms
+            let silenceThreshold = 0.01; // Silence threshold (RMS)
+            let silenceDuration = pauseInterval * 1000; // Use user value
+            let timerInterval = null;
 
+            // Timer update for pause detection
+            function updatePauseTimer() {
+                if (!silenceStart) {
+                    document.getElementById('pause-timer').innerText = '';
+                    return;
+                }
+                const elapsed = Date.now() - silenceStart;
+                const left = Math.max(0, silenceDuration - elapsed);
+                document.getElementById('pause-timer').innerText = `Pause auto-stop in ${(left/1000).toFixed(1)}s`;
+            }
+
+            // Function to check for silence in the audio stream
             function checkSilence() {
                 analyser.getByteTimeDomainData(dataArray);
                 let sumSquares = 0;
@@ -40,29 +87,67 @@ window.startRecording = function() {
                 let rms = Math.sqrt(sumSquares / dataArray.length);
                 if (rms < silenceThreshold) {
                     if (!silenceStart) silenceStart = Date.now();
+                    updatePauseTimer();
                     if (Date.now() - silenceStart > silenceDuration) {
-                        // Detected silence for required duration
+                        // Detected silence for required duration, stop recording
                         stream.getTracks().forEach(track => track.stop());
                         window.stopRecording();
                         audioContext.close();
+                        document.getElementById('pause-timer').innerText = '';
+                        if (timerInterval) clearInterval(timerInterval);
                         return;
                     }
                 } else {
                     silenceStart = null;
+                    updatePauseTimer();
                 }
                 requestAnimationFrame(checkSilence);
             }
             checkSilence();
 
-            // Stop after 1 minute automatically
+            // Timer for updating pause timer display
+            if (useStreaming) {
+                timerInterval = setInterval(updatePauseTimer, 100);
+            }
+
+            // Stop recording automatically after 1 minute
             recordingTimeout = setTimeout(() => {
                 stream.getTracks().forEach(track => track.stop());
                 window.stopRecording();
                 audioContext.close();
+                document.getElementById('pause-timer').innerText = '';
+                if (timerInterval) clearInterval(timerInterval);
             }, 60000);
         });
 };
 
+// Send a single audio chunk to the streaming endpoint
+function sendAudioChunkStreaming(blob) {
+    const reader = new FileReader();
+    reader.onload = function() {
+        const base64data = reader.result.split(',')[1];
+        fetch('/tts/stream', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ audio: base64data, language: window._selectedLanguage })
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Update the question box with partial transcription
+            if (data && data.partial_text) {
+                document.getElementById('question-box').value = data.partial_text;
+            }
+        })
+        .catch(err => {
+            console.error('Streaming error:', err);
+        });
+    };
+    reader.readAsDataURL(blob);
+}
+
+// Stop recording and process the audio
 window.stopRecording = function() {
     // Guard to prevent multiple calls
     if (window._isRecordingStopped) return;
@@ -72,9 +157,11 @@ window.stopRecording = function() {
         mediaRecorder.stop();
         clearTimeout(recordingTimeout);
         mediaRecorder.onstop = () => {
+            // Combine all audio chunks into a single blob
             lastAudioBlob = new Blob(audioChunks, { type: 'audio/webm' });
             let reader = new FileReader();
             reader.onload = function() {
+                // Convert audio to base64 and emit to server via socket
                 let base64data = btoa(String.fromCharCode(...new Uint8Array(reader.result)));
                 const language = window._selectedLanguage || 'en';
                 socket.emit('audio_blob', JSON.stringify({audio: base64data, language: language}));
@@ -87,6 +174,7 @@ window.stopRecording = function() {
     setTimeout(() => { window._isRecordingStopped = false; }, 2000);
 };
 
+// Play the last recorded audio
 window.playAudio = function() {
     if (lastAudioBlob) {
         let audioURL = URL.createObjectURL(lastAudioBlob);
@@ -97,6 +185,7 @@ window.playAudio = function() {
     }
 };
 
+// Handle transcription updates from the server
 socket.on('transcription_update', function(data) {
     console.log('[DEBUG] Received transcription_update event:', data);
     if (data.answer === 'Error processing audio.') {
@@ -130,6 +219,7 @@ socket.on('transcription_update', function(data) {
     }
 });
 
+// DOMContentLoaded: Setup UI event handlers and input mode switching
 document.addEventListener('DOMContentLoaded', function() {
     // Input mode switching logic
     const inputMode = document.getElementById('input-mode');
@@ -213,16 +303,3 @@ document.addEventListener('DOMContentLoaded', function() {
         };
     }
 });
-
-
-
-
-
-
-
-
-
-
-
-
-

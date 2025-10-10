@@ -1,4 +1,3 @@
-
 from flask import request, jsonify, render_template, Response
 from app import app
 from flask_socketio import emit
@@ -39,8 +38,6 @@ def tts():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/', methods=['GET', 'POST'])
-
-@app.route('/', methods=['GET'])
 def index():
     return render_template('index.html')
 
@@ -154,3 +151,39 @@ def transcribe_audio(audio_file, language='en'):
     }
     r = requests.post(url, headers=headers, files=files)
     return r.json()
+
+@app.route('/tts/stream', methods=['POST'])
+def tts_stream():
+    try:
+        data = request.get_json()
+        audio_b64 = data.get('audio')
+        language = data.get('language', 'en')
+        if not audio_b64:
+            return jsonify({'error': 'No audio provided'}), 400
+        import base64
+        import tempfile
+        audio_bytes = base64.b64decode(audio_b64)
+        # Save to a temporary file
+        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_audio:
+            temp_audio.write(audio_bytes)
+            temp_audio.flush()
+            webm_path = temp_audio.name
+        # Convert webm to wav using ffmpeg
+        wav_path = webm_path.replace('.webm', '.wav')
+        import subprocess
+        with open(webm_path, 'rb') as webm_in, open(wav_path, 'wb') as wav_out:
+            subprocess.run([
+                'ffmpeg', '-y', '-i', 'pipe:0', '-ar', '16000', '-ac', '1', '-f', 'wav', 'pipe:1'
+            ], input=webm_in.read(), stdout=wav_out)
+        # Transcribe wav file
+        with open(wav_path, 'rb') as wav_file:
+            transcription = transcribe_audio(wav_file, language)
+        # Clean up temp files
+        try:
+            os.remove(webm_path)
+            os.remove(wav_path)
+        except Exception:
+            pass
+        return jsonify({'partial_text': transcription.get('text', '')})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

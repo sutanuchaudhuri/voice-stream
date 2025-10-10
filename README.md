@@ -328,3 +328,14 @@ demucs --two-stems=vocals input.wav
 ---
 
 After installation, the backend will automatically use DeepFilterNet (or Demucs, if you adapt the code) for denoising when the "Noise Cancellation" toggle is enabled in the UI.
+
+---
+
+## User Interface Screenshot
+
+Below is a screenshot of the application UI:
+
+![Speech to Text Streaming UI](README-resources/Speech_to_Text_Streaming-UI.png)
+
+This image shows the main controls, streaming and noise cancellation toggles, pause detection slider, and the question/answer areas.
+

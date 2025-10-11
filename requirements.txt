@@ -30,6 +30,10 @@ torchaudio
 # Additional Audio Utilities
 pydub
 
+# Note: Standard library modules (io, os, sqlite3, base64, time, json, sys,
+# tempfile, subprocess, warnings, wave, uuid) are not listed as they come
+# with Python by default
+
 # Note: Removed problematic packages:
 # - demucs (numpy compatibility issues)
 # - pyannote.audio (torchcodec dependency problems)

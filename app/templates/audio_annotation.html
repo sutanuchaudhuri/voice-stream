@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio Annotation - Voice Stream App</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        body { background: #f8f9fa; }
+        .container { max-width: 1200px; margin-top: 40px; background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); padding: 32px; }
+        .navigation-menu { margin-bottom: 20px; }
+        .project-card { border: 1px solid #dee2e6; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .recording-controls { text-align: center; margin: 20px 0; }
+        .annotation-grid { margin-top: 20px; }
+        .audio-row { border: 1px solid #e9ecef; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
+        .audio-player { width: 100%; max-width: 300px; }
+        .transcript-editor { width: 100%; min-height: 80px; resize: vertical; }
+        .recording-indicator { color: red; font-weight: bold; animation: blink 1s infinite; }
+        @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+        .streaming-controls { background: #f8f9fa; border-radius: 8px; padding: 15px; margin: 15px 0; }
+        .project-selector { background: #e3f2fd; border-radius: 8px; padding: 15px; margin-bottom: 20px; }
+        .stats-card { background: #f8f9fa; border-radius: 8px; padding: 15px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Navigation Menu -->
+        <div class="navigation-menu">
+            <nav class="navbar navbar-expand-lg navbar-light bg-light rounded">
+                <div class="container-fluid">
+                    <span class="navbar-brand mb-0 h1">Voice Stream App</span>
+                    <div class="navbar-nav">
+                        <a class="nav-link" href="/">Main App</a>
+                        <a class="nav-link" href="/diarization">Speaker Diarization</a>
+                        <a class="nav-link active" href="/audio-annotation">Audio Annotation</a>
+                    </div>
+                </div>
+            </nav>
+        </div>
+
+        <h1 class="mb-4">🎙️ Audio Annotation System</h1>
+
+        <!-- Project Creation/Selection Section -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Project Management</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- Create New Project -->
+                    <div class="col-md-6">
+                        <h6>Create New Project</h6>
+                        <div class="mb-3">
+                            <label for="project-name" class="form-label">Project Name (no spaces):</label>
+                            <input type="text" id="project-name" class="form-control" placeholder="my_audio_project">
+                            <small class="form-text text-muted">Spaces will be automatically removed</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="project-description" class="form-label">Description (optional):</label>
+                            <textarea id="project-description" class="form-control" rows="2" placeholder="Project description..."></textarea>
+                        </div>
+                        <button id="create-project-btn" class="btn btn-primary">Create Project</button>
+                    </div>
+
+                    <!-- Select Existing Project -->
+                    <div class="col-md-6">
+                        <h6>Select Existing Project</h6>
+                        <div class="mb-3">
+                            <label for="project-select" class="form-label">Available Projects:</label>
+                            <select id="project-select" class="form-select">
+                                <option value="">Select a project...</option>
+                            </select>
+                        </div>
+                        <button id="load-project-btn" class="btn btn-success" disabled>Load Project</button>
+                        <button id="refresh-projects-btn" class="btn btn-outline-secondary">Refresh</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Project Info Display -->
+        <div id="project-info" class="project-selector" style="display: none;">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h6 class="mb-0">Current Project: <span id="current-project-name"></span></h6>
+                    <small class="text-muted">Workspace: <span id="current-project-path"></span></small>
+                </div>
+                <div class="col-md-4 text-end">
+                    <span class="badge bg-primary">Annotations: <span id="annotation-count">0</span></span>
+                    <button id="close-project-btn" class="btn btn-sm btn-outline-danger ms-2">Close Project</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recording Section -->
+        <div id="recording-section" class="card mb-4" style="display: none;">
+            <div class="card-header">
+                <h5 class="mb-0">Audio Recording & Annotation</h5>
+            </div>
+            <div class="card-body">
+                <!-- Recording Mode Selection -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="recording-mode" id="start-stop-mode" value="start-stop" checked>
+                            <label class="form-check-label" for="start-stop-mode">
+                                <strong>🔴 Start-Stop Mode</strong><br>
+                                <small class="text-muted">Manual start and stop recording</small>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="recording-mode" id="streaming-mode" value="streaming">
+                            <label class="form-check-label" for="streaming-mode">
+                                <strong>⏸️ Streaming with Pause</strong><br>
+                                <small class="text-muted">Auto-stop after configured pause</small>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Configuration Options -->
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label for="annotation-language" class="form-label">Language:</label>
+                        <select id="annotation-language" class="form-select">
+                            <option value="en" selected>English</option>
+                            <option value="hi">Hindi</option>
+                            <option value="es">Spanish</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4" id="pause-duration-container" style="display: none;">
+                        <label for="pause-duration" class="form-label">Pause Duration (seconds):</label>
+                        <select id="pause-duration" class="form-select">
+                            <option value="2" selected>2 seconds</option>
+                            <option value="3">3 seconds</option>
+                            <option value="4">4 seconds</option>
+                            <option value="5">5 seconds</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-check form-switch mt-4">
+                            <input class="form-check-input" type="checkbox" id="enable-noise-reduction">
+                            <label class="form-check-label" for="enable-noise-reduction">Enable noise reduction</label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recording Controls -->
+                <div class="recording-controls">
+                    <button id="start-recording-btn" class="btn btn-success btn-lg me-2">
+                        <i class="bi bi-mic"></i> Start Recording
+                    </button>
+                    <button id="stop-recording-btn" class="btn btn-danger btn-lg me-2" style="display: none;">
+                        <i class="bi bi-stop"></i> Stop Recording
+                    </button>
+                    <button id="clear-recording-btn" class="btn btn-outline-warning btn-lg">
+                        <i class="bi bi-trash"></i> Clear
+                    </button>
+                    <div id="recording-status" class="mt-3">
+                        <span id="recording-indicator" class="recording-indicator" style="display: none;">● RECORDING</span>
+                        <span id="pause-timer" style="display: none; color: orange; font-weight: bold;"></span>
+                    </div>
+                </div>
+
+                <!-- Current Recording Preview -->
+                <div id="current-recording-preview" class="card mt-3" style="display: none;">
+                    <div class="card-body">
+                        <h6>Current Recording Preview</h6>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <audio id="preview-audio" class="audio-player" controls></audio>
+                                <p><strong>Duration:</strong> <span id="preview-duration">0</span>s</p>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="preview-transcript" class="form-label">Transcript:</label>
+                                <textarea id="preview-transcript" class="transcript-editor form-control" placeholder="Transcript will appear here..."></textarea>
+                            </div>
+                        </div>
+                        <div class="mt-3 text-end">
+                            <button id="save-annotation-btn" class="btn btn-primary">Save Annotation</button>
+                            <button id="discard-recording-btn" class="btn btn-outline-secondary">Discard</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Annotations Grid -->
+        <div id="annotations-section" class="card" style="display: none;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Project Annotations</h5>
+                <div>
+                    <button id="export-annotations-btn" class="btn btn-outline-primary btn-sm">Export Data</button>
+                    <button id="refresh-annotations-btn" class="btn btn-outline-secondary btn-sm">Refresh</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Project Statistics -->
+                <div class="row mb-3">
+                    <div class="col-md-3">
+                        <div class="stats-card text-center">
+                            <h6>Total Annotations</h6>
+                            <span id="total-annotations" class="h4 text-primary">0</span>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stats-card text-center">
+                            <h6>Total Duration</h6>
+                            <span id="total-duration" class="h4 text-success">0:00</span>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stats-card text-center">
+                            <h6>Start-Stop</h6>
+                            <span id="start-stop-count" class="h4 text-info">0</span>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stats-card text-center">
+                            <h6>Streaming</h6>
+                            <span id="streaming-count" class="h4 text-warning">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Annotations Grid -->
+                <div id="annotations-grid" class="annotation-grid">
+                    <p class="text-muted text-center">No annotations yet. Start recording to create your first annotation.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading/Status Messages -->
+        <div id="status-messages"></div>
+    </div>
+
+    <script>
+        let socket = null;
+        let currentProject = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let recordingMode = 'start-stop';
+        let pauseTimer = null;
+        let pauseDuration = 2;
+        let isRecording = false;
+        let currentRecordingData = null;
+
+        // Initialize application
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeSocket();
+            setupEventListeners();
+            loadProjects();
+        });
+
+        function initializeSocket() {
+            socket = io();
+
+            socket.on('connect', function() {
+                console.log('Socket connected');
+            });
+
+            socket.on('annotation_transcription_result', function(data) {
+                handleTranscriptionResult(data);
+            });
+
+            socket.on('annotation_error', function(data) {
+                showMessage('Error: ' + data.error, 'danger');
+            });
+        }
+
+        function setupEventListeners() {
+            // Project management
+            document.getElementById('create-project-btn').addEventListener('click', createProject);
+            document.getElementById('load-project-btn').addEventListener('click', loadProject);
+            document.getElementById('refresh-projects-btn').addEventListener('click', loadProjects);
+            document.getElementById('close-project-btn').addEventListener('click', closeProject);
+            document.getElementById('project-select').addEventListener('change', function() {
+                document.getElementById('load-project-btn').disabled = !this.value;
+            });
+
+            // Recording mode
+            document.querySelectorAll('input[name="recording-mode"]').forEach(radio => {
+                radio.addEventListener('change', function() {
+                    recordingMode = this.value;
+                    document.getElementById('pause-duration-container').style.display =
+                        this.value === 'streaming' ? 'block' : 'none';
+                });
+            });
+
+            // Recording controls
+            document.getElementById('start-recording-btn').addEventListener('click', startRecording);
+            document.getElementById('stop-recording-btn').addEventListener('click', stopRecording);
+            document.getElementById('clear-recording-btn').addEventListener('click', clearRecording);
+            document.getElementById('save-annotation-btn').addEventListener('click', saveAnnotation);
+            document.getElementById('discard-recording-btn').addEventListener('click', discardRecording);
+
+            // Pause duration
+            document.getElementById('pause-duration').addEventListener('change', function() {
+                pauseDuration = parseInt(this.value);
+            });
+
+            // Annotations management
+            document.getElementById('refresh-annotations-btn').addEventListener('click', loadAnnotations);
+            document.getElementById('export-annotations-btn').addEventListener('click', exportAnnotations);
+        }
+
+        async function createProject() {
+            const projectName = document.getElementById('project-name').value.trim().replace(/\s/g, '');
+            const description = document.getElementById('project-description').value.trim();
+
+            if (!projectName) {
+                showMessage('Please enter a project name', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/annotation/create-project', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ project_name: projectName, description })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage(`Project "${projectName}" created successfully!`, 'success');
+                    document.getElementById('project-name').value = '';
+                    document.getElementById('project-description').value = '';
+                    loadProjects();
+                    selectProject(result.project_id, projectName, result.workspace_path);
+                } else {
+                    showMessage(result.error, 'danger');
+                }
+            } catch (error) {
+                showMessage('Error creating project: ' + error.message, 'danger');
+            }
+        }
+
+        async function loadProjects() {
+            try {
+                const response = await fetch('/api/annotation/projects');
+                const data = await response.json();
+
+                const select = document.getElementById('project-select');
+                select.innerHTML = '<option value="">Select a project...</option>';
+
+                data.projects.forEach(project => {
+                    const option = document.createElement('option');
+                    option.value = project.id;
+                    option.textContent = `${project.project_name} (${project.annotation_count} annotations)`;
+                    option.dataset.projectName = project.project_name;
+                    option.dataset.workspacePath = project.workspace_path;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                showMessage('Error loading projects: ' + error.message, 'danger');
+            }
+        }
+
+        function loadProject() {
+            const select = document.getElementById('project-select');
+            const selectedOption = select.options[select.selectedIndex];
+
+            if (selectedOption.value) {
+                selectProject(
+                    selectedOption.value,
+                    selectedOption.dataset.projectName,
+                    selectedOption.dataset.workspacePath
+                );
+            }
+        }
+
+        function selectProject(projectId, projectName, workspacePath) {
+            currentProject = {
+                id: projectId,
+                name: projectName,
+                path: workspacePath
+            };
+
+            // Update UI
+            document.getElementById('current-project-name').textContent = projectName;
+            document.getElementById('current-project-path').textContent = workspacePath;
+            document.getElementById('project-info').style.display = 'block';
+            document.getElementById('recording-section').style.display = 'block';
+            document.getElementById('annotations-section').style.display = 'block';
+
+            // Load annotations for this project
+            loadAnnotations();
+
+            showMessage(`Project "${projectName}" loaded successfully!`, 'success');
+        }
+
+        function closeProject() {
+            currentProject = null;
+            document.getElementById('project-info').style.display = 'none';
+            document.getElementById('recording-section').style.display = 'none';
+            document.getElementById('annotations-section').style.display = 'none';
+            document.getElementById('project-select').value = '';
+            document.getElementById('load-project-btn').disabled = true;
+        }
+
+        async function startRecording() {
+            if (!currentProject) {
+                showMessage('Please select or create a project first', 'warning');
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                isRecording = true;
+
+                mediaRecorder.ondataavailable = event => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = () => {
+                    if (audioChunks.length > 0) {
+                        processRecording();
+                    }
+                };
+
+                mediaRecorder.start();
+
+                // Update UI
+                document.getElementById('start-recording-btn').style.display = 'none';
+                document.getElementById('stop-recording-btn').style.display = 'inline-block';
+                document.getElementById('recording-indicator').style.display = 'inline';
+
+                // Handle streaming mode with pause detection
+                if (recordingMode === 'streaming') {
+                    setupPauseDetection();
+                }
+
+                showMessage('Recording started...', 'info');
+            } catch (error) {
+                showMessage('Error accessing microphone: ' + error.message, 'danger');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+
+                // Stop all tracks
+                const stream = mediaRecorder.stream;
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                }
+
+                // Clear pause timer
+                if (pauseTimer) {
+                    clearTimeout(pauseTimer);
+                    pauseTimer = null;
+                }
+
+                // Update UI
+                document.getElementById('start-recording-btn').style.display = 'inline-block';
+                document.getElementById('stop-recording-btn').style.display = 'none';
+                document.getElementById('recording-indicator').style.display = 'none';
+                document.getElementById('pause-timer').style.display = 'none';
+            }
+        }
+
+        function setupPauseDetection() {
+            // Simple pause detection - in a real implementation, you'd use WebRTC VAD
+            let silenceStart = null;
+            let analyser = null;
+
+            try {
+                const audioContext = new AudioContext();
+                const source = audioContext.createMediaStreamSource(mediaRecorder.stream);
+                analyser = audioContext.createAnalyser();
+                source.connect(analyser);
+
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+
+                function checkAudioLevel() {
+                    if (!isRecording) return;
+
+                    analyser.getByteFrequencyData(dataArray);
+                    const average = dataArray.reduce((a, b) => a + b) / bufferLength;
+
+                    if (average < 10) { // Silence threshold
+                        if (!silenceStart) {
+                            silenceStart = Date.now();
+                        } else {
+                            const silenceDuration = (Date.now() - silenceStart) / 1000;
+                            const remaining = pauseDuration - silenceDuration;
+
+                            if (remaining > 0) {
+                                document.getElementById('pause-timer').style.display = 'inline';
+                                document.getElementById('pause-timer').textContent =
+                                    `Auto-stop in ${remaining.toFixed(1)}s`;
+                            } else {
+                                stopRecording();
+                                return;
+                            }
+                        }
+                    } else {
+                        silenceStart = null;
+                        document.getElementById('pause-timer').style.display = 'none';
+                    }
+
+                    requestAnimationFrame(checkAudioLevel);
+                }
+
+                checkAudioLevel();
+            } catch (error) {
+                console.warn('Audio level detection not available:', error);
+            }
+        }
+
+        function processRecording() {
+            if (audioChunks.length === 0) return;
+
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const reader = new FileReader();
+
+            reader.onload = function() {
+                const base64data = reader.result.split(',')[1];
+
+                // Send to server for transcription
+                socket.emit('annotation_audio_blob', JSON.stringify({
+                    project_id: currentProject.id,
+                    audio: base64data,
+                    recording_mode: recordingMode,
+                    language: document.getElementById('annotation-language').value,
+                    pause_duration: pauseDuration
+                }));
+
+                showMessage('Processing audio...', 'info');
+            };
+
+            reader.readAsDataURL(audioBlob);
+        }
+
+        function handleTranscriptionResult(data) {
+            currentRecordingData = data;
+
+            // Create audio URL for preview
+            const audioBlob = new Blob([Uint8Array.from(atob(data.audio_data), c => c.charCodeAt(0))], { type: 'audio/wav' });
+            const audioUrl = URL.createObjectURL(audioBlob);
+
+            // Update preview
+            document.getElementById('preview-audio').src = audioUrl;
+            document.getElementById('preview-duration').textContent = data.duration.toFixed(1);
+            document.getElementById('preview-transcript').value = data.transcript;
+
+            // Show preview
+            document.getElementById('current-recording-preview').style.display = 'block';
+
+            showMessage('Transcription completed! Review and save the annotation.', 'success');
+        }
+
+        async function saveAnnotation() {
+            if (!currentRecordingData) {
+                showMessage('No recording data to save', 'warning');
+                return;
+            }
+
+            const transcript = document.getElementById('preview-transcript').value.trim();
+            if (!transcript) {
+                showMessage('Please enter a transcript before saving', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/annotation/save-annotation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        project_id: currentProject.id,
+                        audio_data: currentRecordingData.audio_data,
+                        transcript: transcript,
+                        recording_mode: currentRecordingData.recording_mode,
+                        language: currentRecordingData.language,
+                        duration: currentRecordingData.duration
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage('Annotation saved successfully!', 'success');
+                    discardRecording();
+                    loadAnnotations(); // Refresh the grid
+                } else {
+                    showMessage('Error saving annotation: ' + result.error, 'danger');
+                }
+            } catch (error) {
+                showMessage('Error saving annotation: ' + error.message, 'danger');
+            }
+        }
+
+        function discardRecording() {
+            currentRecordingData = null;
+            document.getElementById('current-recording-preview').style.display = 'none';
+            document.getElementById('preview-transcript').value = '';
+
+            // Clean up audio URL
+            const audioElement = document.getElementById('preview-audio');
+            if (audioElement.src) {
+                URL.revokeObjectURL(audioElement.src);
+                audioElement.src = '';
+            }
+        }
+
+        function clearRecording() {
+            if (isRecording) {
+                stopRecording();
+            }
+            discardRecording();
+            audioChunks = [];
+        }
+
+        async function loadAnnotations() {
+            if (!currentProject) return;
+
+            try {
+                const response = await fetch(`/api/annotation/project/${currentProject.id}/annotations`);
+                const data = await response.json();
+
+                updateAnnotationStats(data.annotations);
+                renderAnnotationsGrid(data.annotations);
+            } catch (error) {
+                showMessage('Error loading annotations: ' + error.message, 'danger');
+            }
+        }
+
+        function updateAnnotationStats(annotations) {
+            const totalCount = annotations.length;
+            const totalDuration = annotations.reduce((sum, ann) => sum + (ann.duration || 0), 0);
+            const startStopCount = annotations.filter(ann => ann.recording_mode === 'start-stop').length;
+            const streamingCount = annotations.filter(ann => ann.recording_mode === 'streaming').length;
+
+            document.getElementById('annotation-count').textContent = totalCount;
+            document.getElementById('total-annotations').textContent = totalCount;
+            document.getElementById('total-duration').textContent = formatDuration(totalDuration);
+            document.getElementById('start-stop-count').textContent = startStopCount;
+            document.getElementById('streaming-count').textContent = streamingCount;
+        }
+
+        function renderAnnotationsGrid(annotations) {
+            const grid = document.getElementById('annotations-grid');
+
+            if (annotations.length === 0) {
+                grid.innerHTML = '<p class="text-muted text-center">No annotations yet. Start recording to create your first annotation.</p>';
+                return;
+            }
+
+            grid.innerHTML = '';
+
+            annotations.forEach(annotation => {
+                const row = createAnnotationRow(annotation);
+                grid.appendChild(row);
+            });
+        }
+
+        function createAnnotationRow(annotation) {
+            const row = document.createElement('div');
+            row.className = 'audio-row';
+            row.innerHTML = `
+                <div class="row align-items-center">
+                    <div class="col-md-3">
+                        <audio class="audio-player" controls>
+                            <source src="/api/annotation/audio/${annotation.audio_filename}" type="audio/wav">
+                        </audio>
+                        <div class="mt-2">
+                            <small class="text-muted">
+                                ${formatDuration(annotation.duration)} •
+                                ${annotation.recording_mode} •
+                                ${annotation.language}
+                            </small>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <textarea class="transcript-editor form-control"
+                                  data-annotation-id="${annotation.id}"
+                                  onchange="updateTranscript(${annotation.id}, this.value)">${annotation.transcript}</textarea>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-muted small">
+                            <div>Created: ${new Date(annotation.created_at).toLocaleString()}</div>
+                            ${annotation.updated_at !== annotation.created_at ?
+                              `<div>Updated: ${new Date(annotation.updated_at).toLocaleString()}</div>` : ''}
+                        </div>
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-outline-primary" onclick="saveTranscriptUpdate(${annotation.id})">
+                                Save Changes
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteAnnotation(${annotation.id})">
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            return row;
+        }
+
+        async function updateTranscript(annotationId, newTranscript) {
+            // This function is called on change - we'll implement a save button for explicit saves
+        }
+
+        async function saveTranscriptUpdate(annotationId) {
+            const textarea = document.querySelector(`textarea[data-annotation-id="${annotationId}"]`);
+            const newTranscript = textarea.value.trim();
+
+            if (!newTranscript) {
+                showMessage('Transcript cannot be empty', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/annotation/update-transcript', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        annotation_id: annotationId,
+                        transcript: newTranscript
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage('Transcript updated successfully!', 'success');
+                    loadAnnotations(); // Refresh to show updated timestamp
+                } else {
+                    showMessage('Error updating transcript: ' + result.error, 'danger');
+                }
+            } catch (error) {
+                showMessage('Error updating transcript: ' + error.message, 'danger');
+            }
+        }
+
+        async function deleteAnnotation(annotationId) {
+            if (!confirm('Are you sure you want to delete this annotation? This action cannot be undone.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/annotation/delete-annotation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        annotation_id: annotationId
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage('Annotation deleted successfully!', 'success');
+                    loadAnnotations(); // Refresh the annotations grid
+                } else {
+                    showMessage('Error deleting annotation: ' + result.error, 'danger');
+                }
+            } catch (error) {
+                showMessage('Error deleting annotation: ' + error.message, 'danger');
+            }
+        }
+
+        function exportAnnotations() {
+            if (!currentProject) return;
+
+            // Create CSV export
+            showMessage('Export functionality to be implemented', 'info');
+        }
+
+        function formatDuration(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${minutes}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function showMessage(message, type = 'info') {
+            const container = document.getElementById('status-messages');
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            container.appendChild(alertDiv);
+
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

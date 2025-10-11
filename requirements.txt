@@ -1,14 +1,36 @@
+# Flask Web Framework
 flask
 requests
 flask-socketio
 eventlet
 python-dotenv
+
+# AI/ML and Language Processing
 langchain
 openai
 langchain-community
 langchain-openai
-# For server-side denoising tools
-# DeepFilterNet (speech denoising)
-deepfilternet
-# Demucs (music/general audio separation/denoising)
-demucs
+
+# Audio Processing (Updated for numpy >=2.0 compatibility)
+# Modern denoising - replaces problematic demucs
+noisereduce
+scipy
+librosa
+soundfile
+
+# Speaker Recognition and Diarization (Updated)
+# speechbrain replaces pyannote.audio to avoid torchcodec issues
+speechbrain
+
+# Core Scientific Computing
+numpy>=2.2.2
+torch
+torchaudio
+
+# Additional Audio Utilities
+pydub
+
+# Note: Removed problematic packages:
+# - demucs (numpy compatibility issues)
+# - pyannote.audio (torchcodec dependency problems)
+# - torchcodec (FFmpeg library loading issues)

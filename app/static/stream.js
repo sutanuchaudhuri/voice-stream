@@ -98,7 +98,7 @@ window.startRecording = function() {
                     if (Date.now() - silenceStart > silenceDuration) {
                         // Detected silence for required duration, stop recording
                         stream.getTracks().forEach(track => track.stop());
-                        // Instead of just calling stopRecording, trigger answer/TTS flow
+                        // Handle auto-stop for streaming mode
                         handleStreamingAutoStop();
                         audioContext.close();
                         document.getElementById('pause-timer').innerText = '';
@@ -121,7 +121,11 @@ window.startRecording = function() {
             // Stop recording automatically after 1 minute
             recordingTimeout = setTimeout(() => {
                 stream.getTracks().forEach(track => track.stop());
-                window.stopRecording();
+                if (useStreaming) {
+                    handleStreamingAutoStop();
+                } else {
+                    window.stopRecording();
+                }
                 audioContext.close();
                 document.getElementById('pause-timer').innerText = '';
                 if (timerInterval) clearInterval(timerInterval);
@@ -133,6 +137,27 @@ window.startRecording = function() {
 function isNoiseCancellationEnabled() {
     const noiseToggle = document.getElementById('noise-cancel-toggle');
     return noiseToggle && noiseToggle.checked;
+}
+
+// Handle streaming auto-stop - submit question to LLM automatically
+function handleStreamingAutoStop() {
+    document.getElementById('recording-cue').style.display = 'none';
+
+    // Get the current transcribed text from the question box
+    const questionText = document.getElementById('question-box').value.trim();
+
+    if (questionText) {
+        // Submit the transcribed question to LLM for answer generation
+        document.getElementById('result').innerText = 'Processing question...';
+
+        socket.emit('audio_blob', JSON.stringify({
+            text: questionText,  // Send as text instead of audio
+            language: window._selectedLanguage || 'en',
+            noise_cancellation: isNoiseCancellationEnabled()
+        }));
+    } else {
+        document.getElementById('result').innerText = 'No text transcribed to process.';
+    }
 }
 
 // Send a single audio chunk to the streaming endpoint
@@ -156,6 +181,8 @@ function sendAudioChunkStreaming(blob) {
             // Update the question box with partial transcription
             if (data && data.partial_text) {
                 document.getElementById('question-box').value = data.partial_text;
+                // Store the latest transcription for auto-submission
+                window._latestStreamingText = data.partial_text;
             }
         })
         .catch(err => {
@@ -210,54 +237,32 @@ window.playAudio = function() {
 // Handle transcription updates from the server
 socket.on('transcription_update', function(data) {
     console.log('[DEBUG] Received transcription_update event:', data);
-    if (data.answer === 'Error processing audio.') {
+    if (data.error || data.answer === 'Error processing audio.') {
         document.getElementById('result').innerText = 'Error: Audio upload or transcription failed.';
     } else {
         document.getElementById('question-box').value = data.question || '';
         document.getElementById('answer-box').value = data.answer || '';
         document.getElementById('result').innerText = '';
-        // Automatically play TTS audio for the answer
-        const ttsAudio = document.getElementById('tts-audio');
-        if (data.answer && ttsAudio) {
-            const formData = new FormData();
-            formData.append('text', data.answer);
-            fetch('/tts', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => {
-                if (!response.ok) throw new Error('TTS request failed');
-                return response.blob();
-            })
-            .then(audioBlob => {
-                ttsAudio.src = URL.createObjectURL(audioBlob);
-                ttsAudio.style.display = 'block';
-                ttsAudio.play();
-            })
-            .catch(err => {
-                console.error('Error streaming TTS audio:', err);
-            });
+
+        // Show audio controls when we have an answer
+        if (data.answer) {
+            document.querySelector('.audio-controls').style.display = 'block';
+        }
+
+        // Handle speaker diarization results
+        if (data.diarization && Array.isArray(data.diarization) && data.diarization.length > 0) {
+            displayDiarizationResults(data.diarization);
         }
     }
 });
 
-// Handle auto-stop in streaming mode: send question for answer and TTS
-function handleStreamingAutoStop() {
-    window.stopRecording(); // This will finalize the audio and emit as usual
-    // After a short delay, trigger answer/TTS if question is present
-    setTimeout(function() {
-        const question = document.getElementById('question-box').value.trim();
-        const inputLanguage = document.getElementById('input-language');
-        const language = inputLanguage ? inputLanguage.value : 'en';
-        if (question) {
-            socket.emit('audio_blob', JSON.stringify({
-                text: question,
-                language: language,
-                noise_cancellation: isNoiseCancellationEnabled()
-            }));
-            document.getElementById('result').innerText = 'Submitting question...';
-        }
-    }, 500);
+// Display diarization results (simplified for main page)
+function displayDiarizationResults(diarizationData) {
+    const resultDiv = document.getElementById('result');
+    resultDiv.innerHTML = '<div class="alert alert-info">Speaker diarization completed! <a href="/diarization" target="_blank" class="btn btn-sm btn-primary">View Detailed Results</a></div>';
+
+    // Store diarization data in sessionStorage for the separate page
+    sessionStorage.setItem('diarizationResults', JSON.stringify(diarizationData));
 }
 
 // DOMContentLoaded: Setup UI event handlers and input mode switching
@@ -272,9 +277,10 @@ document.addEventListener('DOMContentLoaded', function() {
     function setInputMode(mode) {
         if (mode === 'voice') {
             startRecordingBtn.style.display = '';
-            stopRecordingBtn.style.display = '';
             questionBox.readOnly = true;
             submitTextBtn.style.display = 'none';
+            // Show/hide stop button based on streaming mode
+            window.toggleStreamingUI();
         } else {
             startRecordingBtn.style.display = 'none';
             stopRecordingBtn.style.display = 'none';
@@ -301,6 +307,8 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         };
     }
+
+    // TTS button functionality
     const ttsBtn = document.getElementById('tts-btn');
     const pauseAudioBtn = document.getElementById('pause-audio-btn');
     const ttsAudio = document.getElementById('tts-audio');
@@ -310,7 +318,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const answer = document.getElementById('answer-box').value;
             if (answer) {
                 ttsBtn.disabled = true;
-                ttsBtn.innerText = '🔄';
+                ttsBtn.innerHTML = '<span style="font-size:1.5em;">🔄</span>';
                 ttsAudio.style.display = 'none';
                 try {
                     const formData = new FormData();
@@ -338,8 +346,10 @@ document.addEventListener('DOMContentLoaded', function() {
         pauseAudioBtn.onclick = function() {
             if (!ttsAudio.paused) {
                 ttsAudio.pause();
+                pauseAudioBtn.innerHTML = '<span style="font-size:1.5em;">▶️</span>';
             } else {
                 ttsAudio.play();
+                pauseAudioBtn.innerHTML = '<span style="font-size:1.5em;">⏸️</span>';
             }
         };
     }

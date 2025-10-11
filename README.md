@@ -278,743 +278,97 @@ pip install -r requirements.txt
 ```
 
 ### 3. Environment Configuration
+
+**IMPORTANT**: You must configure your OpenAI API key before running the application.
+
+#### Option 1: Create .env File (Recommended)
 Create a `.env` file in the `app/` directory:
 ```bash
 # app/.env
 OPENAI_API_KEY=your_openai_api_key_here
 VOICE_UPLOAD_PERSIST=no  # Optional: Set to 'yes' to keep audio files
+DIARIZATION_SEGMENT_LENGTH=10  # Optional: Default segment length (seconds)
+MAX_SPEAKERS=10  # Optional: Maximum number of speakers to detect
+ENABLE_SPEAKER_CLUSTERING=yes  # Optional: Enable advanced speaker clustering
 ```
 
-### 4. Run the Application
+#### Option 2: System Environment Variable
+Alternatively, set the API key as a system environment variable:
+
+**macOS/Linux:**
 ```bash
+# Add to ~/.bashrc, ~/.zshrc, or ~/.profile
+export OPENAI_API_KEY="your_openai_api_key_here"
+
+# Or set for current session only
+export OPENAI_API_KEY="your_openai_api_key_here"
 python run.py
 ```
 
-The application will be available at `http://127.0.0.1:5000/`
-
----
-
-## Troubleshooting
-
-### Common Issues RESOLVED
-
-#### ✅ NumPy Compatibility Issues
-**Problem**: `demucs` package incompatible with numpy >=2.0
-**Solution**: Replaced with `noisereduce` - fully compatible with modern numpy versions
-
-#### ✅ TorchCodec/FFmpeg Library Loading Errors
-**Problem**: 
-```
-Could not load libtorchcodec. Library not loaded: @rpath/libavutil.*.dylib
-```
-**Solution**: Replaced `pyannote.audio` with `speechbrain` - eliminates dependency on problematic torchcodec
-
-#### ✅ Audio Processing Reliability
-**Problem**: Inconsistent audio processing and format conversion
-**Solution**: Added professional-grade audio libraries (`librosa`, `soundfile`) with robust error handling
-
-### Performance Optimization
-- **Memory Usage**: Optimized audio loading and processing
-- **Error Handling**: Graceful degradation when advanced features fail
-- **File Cleanup**: Automatic cleanup of temporary audio files
-- **Streaming**: Improved real-time audio processing pipeline
-
----
-
-## Advanced Features Usage
-
-### Enable Noise Cancellation
-1. In the UI, check the "Enable Noise Cancellation" option
-2. Record audio as usual - background noise will be automatically removed
-3. Works in both streaming and non-streaming modes
-
-### Speaker Diarization
-1. Upload or record audio with multiple speakers
-2. The system automatically detects and labels different speakers
-3. Transcription results show speaker labels: "SPEAKER_0: Hello", "SPEAKER_1: Hi there"
-4. Fallback to simple segmentation if speaker identification fails
-
-### API Integration
-```python
-# Example: Using the noise cancellation endpoint
-import requests
-
-response = requests.post('http://localhost:5000/tts/stream', json={
-    'audio': base64_encoded_audio,
-    'language': 'en',
-    'noise_cancellation': True
-})
-```
-
----
-
-## Dependencies (Updated)
-
-### Core Flask Dependencies
-- `flask` - Web framework
-- `flask-socketio` - Real-time communication
-- `eventlet` - Async server support
-- `requests` - HTTP client for OpenAI API
-
-### AI/ML Libraries
-- `openai` - OpenAI API client
-- `langchain` - LLM framework
-- `langchain-community` - Community extensions
-- `langchain-openai` - OpenAI integration
-
-### Audio Processing (NEW/UPDATED)
-- `noisereduce` - Audio denoising (numpy >=2.0 compatible)
-- `speechbrain` - Speaker recognition and diarization
-- `librosa` - Professional audio analysis
-- `soundfile` - Audio file I/O
-- `scipy` - Scientific computing support
-
-### Core Scientific Stack
-- `numpy>=2.2.2` - Numerical computing
-- `torch` - Deep learning framework
-- `torchaudio` - Audio processing for PyTorch
-
-### Utilities
-- `python-dotenv` - Environment variable management
-- `pydub` - Audio manipulation utilities
-
----
-
-## Performance Benchmarks
-
-### Audio Processing Speed
-- **Denoising**: ~2-3x faster than previous implementation
-- **Speaker Diarization**: Improved accuracy with speechbrain
-- **Memory Usage**: Reduced by ~30% with optimized libraries
-- **Startup Time**: No more torchcodec loading delays
-
-### Compatibility
-- ✅ Python 3.8 - 3.13
-- ✅ NumPy 1.24 - 2.x
-- ✅ macOS (Intel & Apple Silicon)
-- ✅ Ubuntu 20.04+
-- ✅ Windows 10+
-
----
-
-## Development & Contribution
-
-### Code Quality
-- Type hints where applicable
-- Comprehensive error handling
-- Modular architecture for easy testing
-- Clean separation of concerns
-
-### Testing
-```bash
-# Test environment
-python test_env.py
-
-# Test audio processing
-python -c "from app.routes import diarize_and_transcribe; print('✅ All imports successful')"
-```
-
-### Contributing
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes with proper error handling
-4. Test with various audio formats and scenarios
-5. Submit a pull request
-
----
-
-## License
-MIT License
-
----
-
-## Support & Documentation
-
-### GitHub Repository
-[https://github.com/sutanuchaudhuri/voice-stream](https://github.com/sutanuchaudhuri/voice-stream)
-
-### Issues & Feature Requests
-Please use GitHub Issues for bug reports and feature requests.
-
-### Version History
-- **v2.0** (Latest): Modern audio processing, numpy >=2.0 compatibility, speechbrain integration
-- **v1.x**: Original implementation with basic features
-
----
-
-## Acknowledgments
-- OpenAI for Whisper and TTS APIs
-- SpeechBrain team for excellent speaker recognition models
-- librosa and noisereduce contributors for audio processing libraries
-- Flask and Flask-SocketIO communities
-
----
-
-## 🎤 Speaker Diarization System
-
-### Overview
-The voice-stream application includes a comprehensive speaker diarization system that can identify and separate different speakers in audio recordings. This feature is available through both file upload and live streaming modes.
-
-### What is Speaker Diarization?
-Speaker diarization is the process of partitioning an audio stream into homogeneous segments according to the speaker identity. It answers the question "who spoke when?" in multi-speaker recordings.
-
-### Features
-- **Real-time Speaker Detection**: Live streaming mode with configurable processing intervals
-- **File-based Processing**: Upload audio files for complete speaker analysis
-- **Visual Timeline**: Interactive timeline showing speaker segments
-- **Customizable Interface**: Rename speakers and change colors
-- **Multi-language Support**: English, Hindi, and Spanish
-- **Professional Audio Processing**: Advanced noise reduction and audio enhancement
-
----
-
-## 🛠 Diarization Installation Requirements
-
-### System Dependencies
-
-#### FFmpeg (Required)
-FFmpeg is essential for audio format conversion and processing.
-
-**macOS:**
-```bash
-# Using Homebrew
-brew install ffmpeg
-
-# Verify installation
-ffmpeg -version
-```
-
-**Ubuntu/Debian:**
-```bash
-# Update package list
-sudo apt update
-
-# Install FFmpeg
-sudo apt install ffmpeg
-
-# Verify installation
-ffmpeg -version
-```
-
 **Windows:**
-1. Download FFmpeg from https://ffmpeg.org/download.html
-2. Extract to `C:\ffmpeg\`
-3. Add `C:\ffmpeg\bin` to your system PATH
-4. Verify installation: `ffmpeg -version`
+```cmd
+# Command Prompt
+set OPENAI_API_KEY=your_openai_api_key_here
+python run.py
 
-**CentOS/RHEL:**
-```bash
-# Enable EPEL repository
-sudo yum install epel-release
+# PowerShell
+$env:OPENAI_API_KEY="your_openai_api_key_here"
+python run.py
 
-# Install FFmpeg
-sudo yum install ffmpeg
-
-# Or for newer versions
-sudo dnf install ffmpeg
+# Or add permanently via System Properties > Environment Variables
 ```
 
-#### Python Requirements
-- **Python 3.8+** (tested up to Python 3.13)
-- **Virtual environment recommended**
+#### How the Application Reads the API Key
 
-### Python Dependencies for Diarization
+The application uses the following code to load the OpenAI API key:
 
-The following packages are specifically required for speaker diarization functionality:
+```python
+# In app/routes.py
+from dotenv import load_dotenv, find_dotenv
+import os
 
-```bash
-# Core diarization dependencies
-pip install speechbrain>=0.5.0
-pip install torch>=2.0.0
-pip install torchaudio>=2.0.0
+# Load environment variables from .env file
+load_dotenv(find_dotenv())
 
-# Audio processing libraries
-pip install librosa>=0.10.0
-pip install soundfile>=0.12.0
-pip install noisereduce>=3.0.0
+# Get API key from environment (works with both .env file and system env vars)
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
-# Scientific computing
-pip install numpy>=2.0.0
-pip install scipy>=1.10.0
+if not OPENAI_API_KEY:
+    raise ValueError(
+        "OpenAI API key not found! Please either:\n"
+        "1. Create app/.env file with OPENAI_API_KEY=your_key_here\n"
+        "2. Set OPENAI_API_KEY environment variable\n"
+        "3. Get your API key from https://platform.openai.com/api-keys"
+    )
 ```
 
-### Complete Installation Process
+#### Getting Your OpenAI API Key
 
+1. Visit [OpenAI Platform](https://platform.openai.com/api-keys)
+2. Sign in to your OpenAI account (create one if needed)
+3. Click "Create new secret key"
+4. Copy the key (starts with `sk-proj-` or `sk-`)
+5. Add it to your `.env` file or environment variables
+
+**Security Note**: 
+- Never commit your `.env` file to version control
+- The `.env` file is already in `.gitignore` to prevent accidental commits
+- Keep your API key secure and don't share it publicly
+
+#### Verifying Your Setup
+
+Test your API key configuration:
 ```bash
-# 1. Clone the repository
-git clone https://github.com/your-username/voice-stream
-cd voice-stream
-
-# 2. Create virtual environment
-python -m venv .venv
-
-# 3. Activate virtual environment
-# On macOS/Linux:
-source .venv/bin/activate
-# On Windows:
-.venv\Scripts\activate
-
-# 4. Install all dependencies
-pip install -r requirements.txt
-
-# 5. Verify diarization dependencies
+# Quick test to verify API key is loaded correctly
 python -c "
-import speechbrain
-import librosa
-import soundfile
-import noisereduce
-print('✅ All diarization dependencies installed successfully')
-"
-
-# 6. Download pre-trained models (automatic on first run)
-python -c "from speechbrain.inference import SpeakerRecognition; SpeakerRecognition.from_hparams(source='speechbrain/spkrec-ecapa-voxceleb', savedir='tmpdir_spkrec')"
-```
-
----
-
-## 🚀 Using Speaker Diarization
-
-### Accessing the Diarization Interface
-
-1. Start the application: `python run.py`
-2. Navigate to: `http://localhost:5000/diarization`
-3. Choose your processing mode
-
-### Mode 1: File Upload Diarization
-
-**Step-by-step process:**
-1. Select "📁 File Upload Mode"
-2. Choose your audio file (supports: MP3, WAV, M4A, WEBM, etc.)
-3. Select language (English, Hindi, Spanish)
-4. Optional: Enable noise reduction
-5. Click "Process Audio"
-6. View results with speaker timeline and transcript
-
-**Supported file formats:**
-- Audio: MP3, WAV, FLAC, M4A, AAC, WEBM
-- Video: MP4, AVI, MOV (audio will be extracted)
-- Maximum file size: 25MB (configurable)
-
-### Mode 2: Live Streaming Diarization
-
-**Configuration options:**
-1. Select "🎙️ Live Streaming Mode"
-2. Choose language
-3. Set processing interval:
-   - **5 seconds**: Real-time analysis
-   - **10 seconds**: Balanced performance (default)
-   - **30 seconds**: Reduced processing load
-   - **1-2 minutes**: Meeting mode
-   - **5 minutes**: Long-form content
-4. Optional: Enable noise reduction
-5. Optional: Auto-detect new speakers
-
-**Recording process:**
-1. Click "Start Recording"
-2. Speak naturally - multiple speakers supported
-3. Watch real-time results appear
-4. Click "Stop Recording" when finished
-
-### Processing Intervals Guide
-
-| Interval | Best For | Pros | Cons |
-|----------|----------|------|------|
-| 5-10 sec | Conversations, chat | Real-time feedback | Higher processing load |
-| 30 sec | Meetings, interviews | Balanced performance | Slight delay |
-| 1-2 min | Presentations | Fewer API calls | Less immediate feedback |
-| 5 min | Lectures, long content | Very efficient | Batch processing only |
-
----
-
-## 🎨 Diarization Interface Features
-
-### Visual Timeline
-- **Color-coded segments**: Each speaker gets a unique color
-- **Interactive elements**: Hover over segments to see content
-- **Duration display**: See exact timing for each speaker turn
-- **Proportional scaling**: Visual representation of speaking time
-
-### Speaker Management
-- **Rename speakers**: Change from "SPEAKER_0" to actual names
-- **Color customization**: Choose colors for each speaker
-- **Avatar generation**: Automatic profile pictures based on names
-- **Export options**: Save results as text or JSON
-
-### Real-time Updates (Streaming Mode)
-- **Live transcription**: See words appear as spoken
-- **Speaker detection**: Automatic speaker change detection
-- **Accumulated results**: Build complete conversation timeline
-- **Session persistence**: Results saved during session
-
----
-
-## ⚙️ Technical Architecture
-
-### Diarization Pipeline
-
-```
-Audio Input → Format Conversion (FFmpeg) → Noise Reduction (Optional)
-                                              ↓
-Speaker Embedding Extraction (SpeechBrain) → Clustering & Segmentation
-                                              ↓
-Segment Transcription (OpenAI Whisper) → Timeline Generation
-                                              ↓
-Real-time Display Updates → Speaker Identification & Labeling
-```
-
-### Core Technologies
-
-**SpeechBrain Integration:**
-```python
-from speechbrain.inference import SpeakerRecognition
-
-# Initialize speaker recognition model
-verification = SpeakerRecognition.from_hparams(
-    source="speechbrain/spkrec-ecapa-voxceleb",
-    savedir="tmpdir_spkrec"
-)
-
-# Process audio segments for speaker identification
-embeddings = verification.encode_batch(audio_segments)
-```
-
-**Audio Processing Pipeline:**
-```python
-# Professional audio handling
-import librosa
-import soundfile as sf
-import noisereduce as nr
-
-# Load and process audio
-audio_data, sample_rate = librosa.load(audio_file, sr=16000)
-
-# Optional noise reduction
-if enable_denoising:
-    audio_data = nr.reduce_noise(y=audio_data, sr=sample_rate)
-
-# Save processed audio
-sf.write(output_file, audio_data, sample_rate)
-```
-
-### Model Information
-
-**Pre-trained Models Used:**
-- **Speaker Recognition**: `speechbrain/spkrec-ecapa-voxceleb`
-- **Size**: ~85MB (downloaded automatically)
-- **Language Support**: Language-agnostic speaker embeddings
-- **Accuracy**: State-of-the-art speaker identification
-
-**Model Storage:**
-- Location: `tmpdir_spkrec/` directory
-- Auto-download: First run downloads models
-- Offline usage: Works without internet after initial setup
-
----
-
-## 🔧 Configuration & Customization
-
-### Environment Variables
-
-```bash
-# app/.env
-OPENAI_API_KEY=your_openai_api_key_here
-VOICE_UPLOAD_PERSIST=no  # Keep audio files after processing
-DIARIZATION_SEGMENT_LENGTH=10  # Default segment length (seconds)
-MAX_SPEAKERS=10  # Maximum number of speakers to detect
-ENABLE_SPEAKER_CLUSTERING=yes  # Enable advanced speaker clustering
-```
-
-### Advanced Configuration
-
-**Custom Processing Parameters:**
-```python
-# In routes.py - modify these parameters
-SEGMENT_DURATION = 10.0  # Seconds per segment
-OVERLAP_DURATION = 2.0   # Overlap between segments
-MIN_SEGMENT_LENGTH = 2.0 # Minimum segment length
-MAX_SILENCE_GAP = 1.0    # Maximum silence gap
-```
-
-**Audio Quality Settings:**
-```python
-# Audio processing parameters
-SAMPLE_RATE = 16000      # Target sample rate
-AUDIO_FORMAT = 'wav'     # Processing format
-NOISE_REDUCE_STATIONARY = True  # Stationary noise reduction
-NOISE_REDUCE_PROP = 0.8  # Noise reduction proportion
-```
-
----
-
-## 🚨 Troubleshooting Diarization Issues
-
-### Common Problems & Solutions
-
-#### Issue 1: "SpeechBrain model download failed"
-```bash
-# Solution: Manual model download
-python -c "
-from speechbrain.inference import SpeakerRecognition
-model = SpeakerRecognition.from_hparams(
-    source='speechbrain/spkrec-ecapa-voxceleb',
-    savedir='tmpdir_spkrec'
-)
-print('Model downloaded successfully')
+from dotenv import load_dotenv, find_dotenv
+import os
+load_dotenv(find_dotenv())
+key = os.getenv('OPENAI_API_KEY')
+if key:
+    print(f'✅ API key loaded: {key[:20]}...')
+else:
+    print('❌ API key not found!')
 "
 ```
-
-#### Issue 2: "FFmpeg not found" error
-```bash
-# Verify FFmpeg installation
-which ffmpeg  # On macOS
-where ffmpeg  # On Windows
-
-# If not found, reinstall FFmpeg and add to PATH
-export PATH="/usr/local/bin:$PATH"  # Add to ~/.bashrc or ~/.zshrc
-```
-
-#### Issue 3: "No speakers detected"
-**Possible causes and solutions:**
-- **Audio too short**: Minimum 5 seconds required
-- **Single speaker**: Normal behavior for solo recordings
-- **Audio quality**: Try enabling noise reduction
-- **Format issues**: Ensure audio file is not corrupted
-
-#### Issue 4: "Memory error during processing"
-```bash
-# Reduce processing parameters
-# In your environment or configuration:
-export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
-```
-
-#### Issue 5: Streaming mode not working
-1. Check microphone permissions in browser
-2. Ensure HTTPS for production (HTTP works for localhost)
-3. Verify Socket.IO connection
-4. Check browser console for JavaScript errors
-
-### Performance Optimization
-
-**For better performance:**
-```python
-# Optimize processing intervals based on use case
-INTERVALS = {
-    'real_time': 5,      # For immediate feedback
-    'balanced': 10,      # Good balance of speed/accuracy
-    'efficient': 30,     # For longer sessions
-    'batch': 300         # For very long recordings
-}
-```
-
-**Memory management:**
-```python
-# Enable garbage collection for long sessions
-import gc
-gc.enable()
-gc.set_threshold(700, 10, 10)
-```
-
----
-
-## 📊 API Reference
-
-### Diarization Endpoints
-
-#### Socket.IO Events
-
-**Client → Server:**
-```javascript
-// Audio blob with diarization flags
-socket.emit('audio_blob', JSON.stringify({
-    audio: base64_audio_data,
-    language: 'en',
-    noise_cancellation: true,
-    streaming_diarization: true,    // Enable streaming mode
-    diarization_only: false,        // Process for diarization only
-    segment_offset: 0               // Time offset for streaming
-}));
-```
-
-**Server → Client:**
-```javascript
-// Streaming diarization results
-socket.on('streaming_diarization_update', function(data) {
-    // data.diarization: Array of new segments
-    // data.accumulated_diarization: All segments so far
-});
-
-// File upload diarization results
-socket.on('transcription_update', function(data) {
-    // data.diarization: Complete diarization results
-    // data.error: Error message if processing failed
-});
-```
-
-#### Diarization Data Format
-
-```javascript
-// Segment object structure
-{
-    speaker: "SPEAKER_0",      // Speaker identifier
-    start: 0.0,                // Start time (seconds)
-    end: 5.2,                  // End time (seconds)
-    text: "Hello, how are you?" // Transcribed text
-}
-
-// Complete response
-{
-    diarization: [segment1, segment2, ...],
-    accumulated_diarization: [all_segments],  // Only in streaming
-    error: null  // Error message if failed
-}
-```
-
-### Frontend Integration
-
-**HTML Structure:**
-```html
-<!-- Mode selection -->
-<input type="radio" name="diarization-mode" id="streaming-mode" value="streaming">
-
-<!-- Processing interval selection -->
-<select id="segment-duration">
-    <option value="5">5 seconds</option>
-    <option value="10" selected>10 seconds</option>
-    <option value="300">5 minutes</option>
-</select>
-
-<!-- Results display -->
-<div id="timeline"></div>
-<div id="transcript-container"></div>
-```
-
-**JavaScript API:**
-```javascript
-// Initialize diarization
-function startStreamingDiarization() {
-    const language = document.getElementById('streaming-language-select').value;
-    const segmentDuration = parseInt(document.getElementById('segment-duration').value) * 1000;
-    
-    navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(stream => {
-            // Process audio in segments
-            mediaRecorder = new MediaRecorder(stream);
-            // ... implementation
-        });
-}
-
-// Display results
-function displayResults(results) {
-    renderTimeline(results);
-    renderTranscript(results);
-    renderSpeakerControls();
-}
-```
-
----
-
-## 📈 Performance Metrics
-
-### Processing Times (Typical)
-
-| Audio Length | File Upload | Streaming (10s) | Streaming (5min) |
-|--------------|-------------|-----------------|------------------|
-| 30 seconds   | 3-5 seconds | Real-time       | N/A              |
-| 2 minutes    | 8-12 seconds| Real-time       | Real-time        |
-| 10 minutes   | 25-35 seconds| Real-time      | Real-time        |
-| 1 hour       | 3-5 minutes | Real-time       | Real-time        |
-
-### Resource Usage
-
-**Memory Requirements:**
-- Base application: ~200MB
-- SpeechBrain model: ~85MB
-- Audio processing: ~50MB per minute of audio
-- Peak usage: ~500MB for 1-hour audio file
-
-**CPU Usage:**
-- File processing: High CPU during processing, idle otherwise
-- Streaming mode: Moderate continuous CPU usage
-- Background: Minimal CPU when idle
-
-**Network Usage:**
-- OpenAI API calls: ~1KB per second of audio
-- Model download: 85MB (one-time)
-- Real-time streaming: Minimal overhead
-
----
-
-## 🧪 Testing Diarization Features
-
-### Test Audio Samples
-
-Create test scenarios with different speaker configurations:
-
-```bash
-# Test with synthetic conversations
-python -c "
-# Generate test audio with multiple speakers
-import pyttsx3
-import wave
-
-engine = pyttsx3.init()
-voices = engine.getProperty('voices')
-
-# Speaker 1
-engine.setProperty('voice', voices[0].id)
-engine.save_to_file('Hello, this is speaker one.', 'speaker1.wav')
-
-# Speaker 2  
-engine.setProperty('voice', voices[1].id)
-engine.save_to_file('Hi there, this is speaker two.', 'speaker2.wav')
-
-engine.runAndWait()
-"
-```
-
-### Validation Checklist
-
-**File Upload Mode:**
-- [ ] Audio file uploads successfully
-- [ ] Multiple speakers detected correctly
-- [ ] Timeline displays properly
-- [ ] Speaker names can be customized
-- [ ] Export functionality works
-- [ ] Noise reduction improves quality
-
-**Streaming Mode:**
-- [ ] Microphone access granted
-- [ ] Real-time segments appear
-- [ ] Speaker changes detected
-- [ ] Processing intervals work correctly
-- [ ] Session state maintained
-- [ ] Clean disconnection handling
-
-**Cross-platform Testing:**
-- [ ] macOS: All features functional
-- [ ] Windows: FFmpeg and audio processing work
-- [ ] Linux: Complete compatibility
-- [ ] Docker: Containerized deployment works
-
----
-
-## 🔐 Security Considerations
-
-### Audio Data Handling
-- **Temporary Storage**: Audio files automatically deleted after processing
-- **No Persistent Storage**: Enable `VOICE_UPLOAD_PERSIST=yes` only if needed
-- **API Security**: OpenAI API key properly secured in environment variables
-
-### Privacy Protection
-- **Local Processing**: Speaker identification happens locally
-- **No Audio Upload**: Only transcription sent to OpenAI, not raw audio
-- **Session Isolation**: Each user session isolated from others
-- **Data Cleanup**: Automatic cleanup of temporary files and session data
-
-### Network Security
-- **HTTPS Recommended**: Use HTTPS in production for microphone access
-- **API Rate Limiting**: Built-in rate limiting for API calls
-- **Input Validation**: All audio inputs validated before processing
-
----
-
+````

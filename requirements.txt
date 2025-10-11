@@ -30,6 +30,13 @@ torchaudio
 # Additional Audio Utilities
 pydub
 
+# AWS S3 Integration
+boto3
+botocore
+
+# AWS DynamoDB Integration (same boto3 package supports both S3 and DynamoDB)
+# boto3 and botocore already included above
+
 # Note: Standard library modules (io, os, sqlite3, base64, time, json, sys,
 # tempfile, subprocess, warnings, wave, uuid) are not listed as they come
 # with Python by default

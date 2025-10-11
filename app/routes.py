@@ -9,53 +9,14 @@ import base64
 import time
 import json
 from dotenv import load_dotenv, find_dotenv
+from app.storage_manager import storage_manager
+from app.database_manager import database_manager
 
 load_dotenv(find_dotenv())
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
-# Database initialization
-def init_annotation_db():
-    conn = sqlite3.connect('audio_annotations.db')
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS projects (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_name TEXT UNIQUE NOT NULL,
-            description TEXT,
-            workspace_path TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS annotations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id INTEGER NOT NULL,
-            audio_filename TEXT NOT NULL,
-            audio_path TEXT NOT NULL,
-            transcript TEXT NOT NULL,
-            original_transcript TEXT,
-            recording_mode TEXT NOT NULL,
-            language TEXT DEFAULT 'en',
-            duration REAL,
-            deleted TEXT DEFAULT 'N',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (project_id) REFERENCES projects (id)
-        )
-    ''')
-
-    # Add deleted column to existing tables if it doesn't exist
-    try:
-        conn.execute('ALTER TABLE annotations ADD COLUMN deleted TEXT DEFAULT "N"')
-        conn.commit()
-    except sqlite3.OperationalError:
-        # Column already exists
-        pass
-
-    conn.commit()
-    conn.close()
-
-# Initialize database on startup
-init_annotation_db()
+# Database initialization is now handled by database_manager
+# Remove the old init_annotation_db function and replace with database_manager initialization
 
 def transcribe_audio(audio_file, language='en'):
     url = 'https://api.openai.com/v1/audio/transcriptions'
@@ -196,12 +157,18 @@ def save_annotation():
         audio_filename = f"audio_{timestamp}.wav"
         audio_path = f"{workspace_path}/audio/{audio_filename}"
 
-        # Save audio file
+        # Decode audio data
         audio_bytes = base64.b64decode(audio_data)
-        with open(audio_path, 'wb') as f:
-            f.write(audio_bytes)
 
-        # Save to database
+        # Save audio file using storage manager
+        try:
+            stored_path = storage_manager.save_file(audio_bytes, audio_path)
+            print(f"[INFO] Audio saved via storage manager: {stored_path}")
+        except Exception as storage_error:
+            conn.close()
+            return jsonify({'success': False, 'error': f'Failed to save audio: {str(storage_error)}'})
+
+        # Save to database (store the relative path, not the full storage path)
         cursor.execute('''
             INSERT INTO annotations (project_id, audio_filename, audio_path, transcript,
                                    original_transcript, recording_mode, language, duration)
@@ -209,10 +176,11 @@ def save_annotation():
         ''', (project_id, audio_filename, audio_path, transcript, transcript,
               recording_mode, language, duration))
 
+        annotation_id = cursor.lastrowid
         conn.commit()
         conn.close()
 
-        return jsonify({'success': True, 'annotation_id': cursor.lastrowid})
+        return jsonify({'success': True, 'annotation_id': annotation_id})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -236,34 +204,47 @@ def serve_annotation_audio(filename):
 
         if not result:
             print(f"[ERROR] Audio file not found in database: {filename}", file=sys.stderr)
-            # Fallback: try to find file in workspace directories
-            # Get the project root directory (parent of app directory)
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            annotation_workspaces_path = os.path.join(project_root, 'annotation_workspaces')
-
-            if os.path.exists(annotation_workspaces_path):
-                for workspace in os.listdir(annotation_workspaces_path):
-                    workspace_path = os.path.join(annotation_workspaces_path, workspace, 'audio')
-                    audio_path = os.path.join(workspace_path, filename)
-                    if os.path.exists(audio_path):
-                        print(f"[INFO] Found audio file in workspace: {audio_path}", file=sys.stderr)
-                        return send_file(audio_path, as_attachment=False, mimetype='audio/wav')
             return jsonify({'error': 'Audio file not found'}), 404
 
         audio_path = result[0]
         print(f"[DEBUG] Audio path from database: {audio_path}", file=sys.stderr)
 
-        # If the path is relative, make it relative to the project root
+        # Try to load file using storage manager
+        try:
+            file_content = storage_manager.load_file(audio_path)
+            if file_content:
+                print(f"[INFO] Audio file loaded via storage manager: {audio_path}", file=sys.stderr)
+                return Response(
+                    file_content,
+                    mimetype='audio/wav',
+                    headers={'Content-Disposition': f'inline; filename="{filename}"'}
+                )
+        except Exception as storage_error:
+            print(f"[WARN] Storage manager failed: {storage_error}", file=sys.stderr)
+
+        # Fallback to local file system for backward compatibility
         if not os.path.isabs(audio_path):
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             audio_path = os.path.join(project_root, audio_path)
 
-        if not os.path.exists(audio_path):
-            print(f"[ERROR] Audio file not found on disk: {audio_path}", file=sys.stderr)
-            return jsonify({'error': 'Audio file not found on disk'}), 404
+        if os.path.exists(audio_path):
+            print(f"[INFO] Fallback - serving local file: {audio_path}", file=sys.stderr)
+            return send_file(audio_path, as_attachment=False, mimetype='audio/wav')
 
-        print(f"[INFO] Successfully serving audio file: {audio_path}", file=sys.stderr)
-        return send_file(audio_path, as_attachment=False, mimetype='audio/wav')
+        # Final fallback: search in workspace directories
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        annotation_workspaces_path = os.path.join(project_root, 'annotation_workspaces')
+
+        if os.path.exists(annotation_workspaces_path):
+            for workspace in os.listdir(annotation_workspaces_path):
+                workspace_path = os.path.join(annotation_workspaces_path, workspace, 'audio')
+                fallback_audio_path = os.path.join(workspace_path, filename)
+                if os.path.exists(fallback_audio_path):
+                    print(f"[INFO] Found audio file in workspace: {fallback_audio_path}", file=sys.stderr)
+                    return send_file(fallback_audio_path, as_attachment=False, mimetype='audio/wav')
+
+        print(f"[ERROR] Audio file not found anywhere: {filename}", file=sys.stderr)
+        return jsonify({'error': 'Audio file not found on any storage'}), 404
 
     except Exception as e:
         print(f"[ERROR] Error serving audio: {str(e)}", file=sys.stderr)
@@ -937,44 +918,439 @@ def register_socketio_events(socketio):
         else:
             print(f"[DEBUG] Disconnect event for session: {sid} (reason: {reason})", file=sys.stderr)
 
-# Socket.IO handlers for audio annotation
-@socketio.on('annotation_audio_blob')
-def handle_audio_blob(data):
+# Storage configuration endpoint
+@app.route('/api/storage/config', methods=['GET'])
+def get_storage_config():
+    """Get current storage configuration and status"""
     try:
-        data = json.loads(data)
-        audio_data = data.get('audio')
-        project_id = data.get('project_id')
-        recording_mode = data.get('recording_mode', 'start-stop')
-        language = data.get('language', 'en')
+        storage_info = storage_manager.get_storage_info()
+        return jsonify({
+            'success': True,
+            'storage_config': storage_info
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
-        if not audio_data:
-            emit('annotation_error', {'error': 'No audio data received'})
-            return
+@app.route('/api/storage/test', methods=['POST'])
+def test_storage():
+    """Test storage connectivity"""
+    try:
+        # Test with a small file
+        test_content = b"test file for storage connectivity"
+        test_path = "test/connectivity_test.txt"
 
-        # Decode audio data
-        audio_bytes = base64.b64decode(audio_data)
+        # Try to save and load
+        storage_manager.save_file(test_content, test_path)
+        loaded_content = storage_manager.load_file(test_path)
 
-        # Transcribe audio
-        try:
-            result = transcribe_audio(io.BytesIO(audio_bytes), language)
-            transcript = result.get('text', 'No transcription available')
+        # Clean up test file
+        storage_manager.delete_file(test_path)
 
-            # Calculate duration (rough estimate)
-            duration = len(audio_bytes) / (44100 * 2)  # Assuming 44.1kHz, 16-bit
-
-            emit('annotation_transcription_result', {
-                'transcript': transcript,
-                'audio_data': audio_data,
-                'duration': duration,
-                'recording_mode': recording_mode,
-                'language': language
+        if loaded_content == test_content:
+            return jsonify({
+                'success': True,
+                'message': f'{storage_manager.storage_mode.upper()} storage is working correctly'
             })
-        except Exception as e:
-            emit('annotation_error', {'error': f'Transcription failed: {str(e)}'})
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Storage test failed - content mismatch'
+            })
 
     except Exception as e:
-        emit('annotation_error', {'error': f'Processing failed: {str(e)}'})
+        return jsonify({
+            'success': False,
+            'error': f'Storage test failed: {str(e)}'
+        })
 
-# Register all SocketIO events
-register_socketio_events(socketio)
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    return render_template('index.html')
 
+@app.route('/diarization')
+def diarization():
+    return render_template('diarization.html')
+
+@app.route('/audio-annotation')
+def audio_annotation():
+    return render_template('audio_annotation.html')
+
+# Server-side flag to control voice upload persistence
+VOICE_UPLOAD_PERSIST = os.getenv('VOICE_UPLOAD_PERSIST', 'no').lower() == 'yes'
+
+def register_socketio_events(socketio):
+    # Session-based streaming state management
+    streaming_sessions = {}
+
+    @socketio.on('audio_blob')
+    def handle_audio_blob(data):
+        import base64
+        import sys
+        import os
+        import json
+        import time
+        from flask import request as flask_request
+        sid = flask_request.sid if hasattr(flask_request, 'sid') else None
+        print(f"[DEBUG] Received audio_blob event for session: {sid}", file=sys.stderr)
+        try:
+            # Parse JSON payload
+            try:
+                payload = json.loads(data)
+            except Exception:
+                payload = None
+
+            language = 'en'
+            question = ''
+            webm_filename = None
+            wav_filename = None
+            denoised_wav_filename = None
+            is_webm = False
+            noise_cancellation = False
+            diarization_results = None
+
+            # Check for streaming diarization mode
+            streaming_diarization = False
+            diarization_only = False
+            segment_offset = 0
+
+            if payload:
+                language = payload.get('language', 'en')
+                noise_cancellation = payload.get('noise_cancellation', False)
+                streaming_diarization = payload.get('streaming_diarization', False)
+                diarization_only = payload.get('diarization_only', False)
+                segment_offset = payload.get('segment_offset', 0)
+
+                print(f"[DEBUG] Mode - streaming: {streaming_diarization}, diarization_only: {diarization_only}", file=sys.stderr)
+
+                if 'audio' in payload:
+                    # Audio input
+                    audio_bytes = io.BytesIO(base64.b64decode(payload['audio']))
+                    header = audio_bytes.getbuffer()[:4]
+                    is_webm = header == b'\x1A\x45\xDF\xA3'
+                    if is_webm:
+                        # Use timestamp for unique filenames in streaming mode
+                        timestamp = int(time.time() * 1000)
+                        webm_filename = f"uploads/{sid}_{timestamp}.webm"
+                        with open(webm_filename, "wb") as f:
+                            f.write(audio_bytes.getbuffer())
+                        print(f"[DEBUG] Saved webm file: {webm_filename}", file=sys.stderr)
+
+                        # Convert webm to wav using ffmpeg for OpenAI transcription with better Opus handling
+                        import subprocess
+                        wav_filename = f"uploads/{sid}_{timestamp}.wav"
+
+                        # Use more robust FFmpeg command to handle Opus codec issues
+                        ffmpeg_cmd = [
+                            "ffmpeg", "-y", "-i", "pipe:0",
+                            "-vn",  # No video
+                            "-acodec", "pcm_s16le",  # Explicit audio codec
+                            "-ar", "16000",  # Sample rate
+                            "-ac", "1",  # Mono
+                            "-f", "wav",  # Output format
+                            "-loglevel", "error",  # Reduce FFmpeg output noise
+                            "pipe:1"
+                        ]
+
+                        with open(webm_filename, "rb") as webm_in:
+                            with open(wav_filename, "wb") as wav_out:
+                                result = subprocess.run(
+                                    ffmpeg_cmd,
+                                    input=webm_in.read(),
+                                    stdout=wav_out,
+                                    stderr=subprocess.PIPE
+                                )
+                                if result.returncode != 0:
+                                    print(f"[WARN] FFmpeg conversion warning: {result.stderr.decode()}", file=sys.stderr)
+
+                        # Verify the WAV file was created and has content
+                        if not os.path.exists(wav_filename) or os.path.getsize(wav_filename) < 1000:
+                            print(f"[ERROR] WAV file creation failed or too small", file=sys.stderr)
+                            socketio.emit('transcription_update', {'error': 'Audio conversion failed'}, room=sid)
+                            return
+
+                        print(f"[DEBUG] Saved wav file: {wav_filename} ({os.path.getsize(wav_filename)} bytes)", file=sys.stderr)
+
+                        # If noise cancellation is requested, run denoising using noisereduce
+                        if noise_cancellation:
+                            denoised_wav_filename = wav_filename.replace('.wav', '_denoised.wav')
+                            try:
+                                import noisereduce as nr
+                                import librosa
+                                import soundfile as sf
+
+                                # Load audio file
+                                audio_data, sample_rate = librosa.load(wav_filename, sr=None)
+
+                                # Apply noise reduction
+                                reduced_noise = nr.reduce_noise(y=audio_data, sr=sample_rate)
+
+                                # Save denoised audio
+                                sf.write(denoised_wav_filename, reduced_noise, sample_rate)
+                                wav_filename = denoised_wav_filename
+                                print(f"[DEBUG] Audio denoised and saved: {denoised_wav_filename}", file=sys.stderr)
+                            except Exception as e:
+                                print(f"[WARN] Denoising failed: {e}", file=sys.stderr)
+
+                        # Transcribe wav file - always try transcription first
+                        if wav_filename and os.path.exists(wav_filename):
+                            try:
+                                with open(wav_filename, "rb") as wav_file:
+                                    transcription = transcribe_audio(wav_file, language)
+                                print(f"[DEBUG] Transcription result: {transcription}", file=sys.stderr)
+
+                                # Extract text from transcription response
+                                if transcription and 'text' in transcription:
+                                    question = transcription['text'].strip()
+                                    print(f"[DEBUG] Extracted transcription text: '{question}'", file=sys.stderr)
+                                else:
+                                    print(f"[WARN] No text in transcription response: {transcription}", file=sys.stderr)
+                                    question = ""
+
+                            except Exception as transcription_error:
+                                print(f"[ERROR] Transcription failed: {transcription_error}", file=sys.stderr)
+                                question = ""
+
+                        # Try speaker diarization if requested or if we have text
+                        if question.strip() and (diarization_only or streaming_diarization):
+                            try:
+                                diarization_results = diarize_and_transcribe_streaming(wav_filename, language, segment_offset)
+                                if diarization_results:
+                                    print(f"[DEBUG] Diarization results: {len(diarization_results)} segments", file=sys.stderr)
+
+                                    # For streaming mode, emit specific streaming event
+                                    if streaming_diarization:
+                                        # Initialize or update session state
+                                        if sid not in streaming_sessions:
+                                            streaming_sessions[sid] = []
+
+                                        # Add new segments to session
+                                        streaming_sessions[sid].extend(diarization_results)
+
+                                        socketio.emit('streaming_diarization_update', {
+                                            'diarization': diarization_results,
+                                            'accumulated_diarization': streaming_sessions[sid]
+                                        }, room=sid)
+
+                                        # Clean up files immediately for streaming
+                                        try:
+                                            if webm_filename and os.path.exists(webm_filename):
+                                                os.remove(webm_filename)
+                                            if wav_filename and os.path.exists(wav_filename):
+                                                os.remove(wav_filename)
+                                            if denoised_wav_filename and os.path.exists(denoised_wav_filename):
+                                                os.remove(denoised_wav_filename)
+                                        except Exception as del_err:
+                                            print(f"[ERROR] Could not delete streaming files: {del_err}", file=sys.stderr)
+
+                                        return  # Exit early for streaming mode
+
+                                    # For file upload diarization-only mode
+                                    elif diarization_only:
+                                        socketio.emit('transcription_update', {
+                                            'question': '',
+                                            'answer': '',
+                                            'diarization': diarization_results
+                                        }, room=sid)
+
+                                        # Clean up files for diarization-only mode
+                                        try:
+                                            if webm_filename and os.path.exists(webm_filename):
+                                                os.remove(webm_filename)
+                                            if wav_filename and os.path.exists(wav_filename):
+                                                os.remove(wav_filename)
+                                            if denoised_wav_filename and os.path.exists(denoised_wav_filename):
+                                                os.remove(denoised_wav_filename)
+                                        except Exception as del_err:
+                                            print(f"[ERROR] Could not delete diarization files: {del_err}", file=sys.stderr)
+
+                                        return  # Exit early for diarization-only mode
+                                else:
+                                    print(f"[WARN] No diarization results obtained", file=sys.stderr)
+                                    if diarization_only:
+                                        socketio.emit('transcription_update', {
+                                            'error': 'No speakers detected in audio',
+                                            'question': '',
+                                            'answer': '',
+                                            'diarization': []
+                                        }, room=sid)
+                                        return
+                            except Exception as e:
+                                print(f"[WARN] Diarization failed: {e}", file=sys.stderr)
+                                if diarization_only or streaming_diarization:
+                                    socketio.emit('transcription_update', {
+                                        'error': f'Diarization failed: {str(e)}',
+                                        'question': '',
+                                        'answer': '',
+                                        'diarization': []
+                                    }, room=sid)
+                                    return
+
+                        # Regular processing for main app (not diarization-only)
+                        if not diarization_only and not streaming_diarization:
+                            # Try regular diarization for context
+                            if question.strip():
+                                try:
+                                    diarization_results = diarize_and_transcribe(wav_filename, language)
+                                    if diarization_results:
+                                        # Compose speaker-labeled transcript
+                                        speaker_question = '\n'.join([f"{seg['speaker']}: {seg['text']}" for seg in diarization_results])
+                                        print(f"[DEBUG] Using diarization results", file=sys.stderr)
+                                        question = speaker_question
+                                except Exception as e:
+                                    print(f"[WARN] Diarization failed, using basic transcription: {e}", file=sys.stderr)
+
+                            # If we still don't have any question text, that's an error
+                            if not question.strip():
+                                print(f"[ERROR] No transcription text obtained from audio", file=sys.stderr)
+                                socketio.emit('transcription_update', {
+                                    'error': 'No speech detected in audio',
+                                    'question': '',
+                                    'answer': ''
+                                }, room=sid)
+                                return
+                elif 'text' in payload:
+                    # Text input
+                    question = payload['text']
+            else:
+                # Fallback: treat as base64 text
+                try:
+                    question = base64.b64decode(data).decode('utf-8')
+                except Exception:
+                    question = ''
+
+            # Skip LLM processing for diarization-only or streaming modes
+            if diarization_only or streaming_diarization:
+                return
+
+            print(f"[DEBUG] Received question: {question} (lang={language})", file=sys.stderr)
+
+            answer = ""
+            if question:
+                try:
+                    from langchain_openai import OpenAI
+                    llm = OpenAI(openai_api_key=OPENAI_API_KEY, model_name="gpt-3.5-turbo-instruct")
+                    # Insist on answer in the same language as the question
+                    if language == 'en':
+                        prompt = f"Answer ONLY in English: {question}"
+                    elif language == 'hi':
+                        prompt = f"उत्तर केवल हिंदी में दें: {question}"
+                    elif language == 'es':
+                        prompt = f"Responde SOLO en español: {question}"
+                    else:
+                        prompt = f"Answer in {language}: {question}"
+                    answer = llm.invoke(prompt)
+                except Exception as llm_error:
+                    print(f"[ERROR] LangChain/OpenAI error: {llm_error}", file=sys.stderr)
+                    answer = "Error generating answer."
+            socketio.emit('transcription_update', {'question': question, 'answer': answer, 'diarization': diarization_results}, room=sid)
+
+            # Delete files after processing unless persistence is enabled
+            if is_webm and not VOICE_UPLOAD_PERSIST:
+                try:
+                    if webm_filename and os.path.exists(webm_filename):
+                        os.remove(webm_filename)
+                    if wav_filename and os.path.exists(wav_filename):
+                        os.remove(wav_filename)
+                    if noise_cancellation and denoised_wav_filename and os.path.exists(denoised_wav_filename):
+                        os.remove(denoised_wav_filename)
+                    print(f"[DEBUG] Deleted files for session: {sid}", file=sys.stderr)
+                except Exception as del_err:
+                    print(f"[ERROR] Could not delete files: {del_err}", file=sys.stderr)
+        except Exception as e:
+            print(f"[ERROR] Error handling audio_blob: {e}", file=sys.stderr)
+            emit('transcription_update', {'text': 'Error processing audio.'})
+
+    # Audio Annotation System Events
+    @socketio.on('annotation_audio_blob')
+    def handle_annotation_audio(data):
+        import base64
+        import sys
+        import json
+        import time
+        from flask import request as flask_request
+
+        sid = flask_request.sid if hasattr(flask_request, 'sid') else None
+        print(f"[DEBUG] Received annotation audio for session: {sid}", file=sys.stderr)
+
+        try:
+            payload = json.loads(data) if isinstance(data, str) else data
+
+            project_id = payload.get('project_id')
+            audio_data = payload.get('audio')
+            recording_mode = payload.get('recording_mode', 'start-stop')
+            language = payload.get('language', 'en')
+            pause_duration = payload.get('pause_duration', 2)
+
+            if not all([project_id, audio_data]):
+                socketio.emit('annotation_error', {'error': 'Missing required data'}, room=sid)
+                return
+
+            # Convert audio and transcribe
+            audio_bytes = io.BytesIO(base64.b64decode(audio_data))
+            timestamp = int(time.time() * 1000)
+            temp_webm = f"uploads/annotation_temp_{sid}_{timestamp}.webm"
+            temp_wav = f"uploads/annotation_temp_{sid}_{timestamp}.wav"
+
+            # Save WebM
+            with open(temp_webm, "wb") as f:
+                f.write(audio_bytes.getbuffer())
+
+            # Convert to WAV
+            import subprocess
+            ffmpeg_cmd = [
+                "ffmpeg", "-y", "-i", temp_webm,
+                "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+                temp_wav
+            ]
+
+            result = subprocess.run(ffmpeg_cmd, capture_output=True)
+            if result.returncode != 0:
+                socketio.emit('annotation_error', {'error': 'Audio conversion failed'}, room=sid)
+                return
+
+            # Transcribe
+            with open(temp_wav, 'rb') as wav_file:
+                transcription = transcribe_audio(wav_file, language)
+
+            transcript = transcription.get('text', '') if transcription else ''
+
+            # Calculate duration
+            duration = 0
+            try:
+                import librosa
+                audio_data_lib, sample_rate = librosa.load(temp_wav, sr=None)
+                duration = len(audio_data_lib) / sample_rate
+            except Exception:
+                duration = 0
+
+            # Emit results back to client
+            socketio.emit('annotation_transcription_result', {
+                'transcript': transcript,
+                'duration': duration,
+                'audio_data': base64.b64encode(open(temp_wav, 'rb').read()).decode('utf-8'),
+                'recording_mode': recording_mode,
+                'language': language
+            }, room=sid)
+
+            # Clean up temp files
+            try:
+                os.remove(temp_webm)
+                os.remove(temp_wav)
+            except Exception:
+                pass
+
+        except Exception as e:
+            print(f"[ERROR] Annotation audio processing failed: {e}", file=sys.stderr)
+            socketio.emit('annotation_error', {'error': str(e)}, room=sid)
+
+    @socketio.on('disconnect')
+    def handle_disconnect(reason=None):
+        # Clean up streaming session state on disconnect
+        import sys
+        from flask import request as flask_request
+        sid = flask_request.sid if hasattr(flask_request, 'sid') else None
+        if sid and sid in streaming_sessions:
+            del streaming_sessions[sid]
+            print(f"[DEBUG] Cleaned up streaming session: {sid} (reason: {reason})", file=sys.stderr)
+        else:
+            print(f"[DEBUG] Disconnect event for session: {sid} (reason: {reason})", file=sys.stderr)

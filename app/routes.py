@@ -35,27 +35,7 @@ def transcribe_audio(audio_file, language='en'):
 @app.route('/api/annotation/projects', methods=['GET'])
 def get_projects():
     try:
-        conn = sqlite3.connect('audio_annotations.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT p.id, p.project_name, p.description, p.workspace_path, p.created_at,
-                   COUNT(CASE WHEN a.deleted IS NULL OR a.deleted = 'N' THEN a.id END) as annotation_count
-            FROM projects p
-            LEFT JOIN annotations a ON p.id = a.project_id
-            GROUP BY p.id, p.project_name, p.description, p.workspace_path, p.created_at
-            ORDER BY p.created_at DESC
-        ''')
-        projects = []
-        for row in cursor.fetchall():
-            projects.append({
-                'id': row[0],
-                'project_name': row[1],
-                'description': row[2],
-                'workspace_path': row[3],
-                'created_at': row[4],
-                'annotation_count': row[5]
-            })
-        conn.close()
+        projects = database_manager.get_projects()
         return jsonify({'success': True, 'projects': projects})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -72,56 +52,30 @@ def create_project():
 
         # Create workspace directory
         workspace_path = f"annotation_workspaces/{project_name}"
-        os.makedirs(workspace_path, exist_ok=True)
-        os.makedirs(f"{workspace_path}/audio", exist_ok=True)
 
-        conn = sqlite3.connect('audio_annotations.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO projects (project_name, description, workspace_path)
-            VALUES (?, ?, ?)
-        ''', (project_name, description, workspace_path))
-        project_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
+        # For local storage mode, create directories directly
+        if storage_manager.storage_mode == 'local':
+            os.makedirs(workspace_path, exist_ok=True)
+            os.makedirs(f"{workspace_path}/audio", exist_ok=True)
+        # For S3 storage, directories are created implicitly when files are saved
+
+        # Use database manager to create project
+        project_id = database_manager.create_project(project_name, description, workspace_path)
 
         return jsonify({
             'success': True,
             'project_id': project_id,
             'workspace_path': workspace_path
         })
-    except sqlite3.IntegrityError:
-        return jsonify({'success': False, 'error': 'Project name already exists'})
     except Exception as e:
+        if "unique" in str(e).lower() or "already exists" in str(e).lower():
+            return jsonify({'success': False, 'error': 'Project name already exists'})
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/annotation/project/<int:project_id>/annotations', methods=['GET'])
 def get_project_annotations(project_id):
     try:
-        conn = sqlite3.connect('audio_annotations.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT id, audio_filename, transcript, original_transcript, recording_mode,
-                   language, duration, created_at, updated_at
-            FROM annotations
-            WHERE project_id = ? AND (deleted IS NULL OR deleted = 'N')
-            ORDER BY created_at DESC
-        ''', (project_id,))
-
-        annotations = []
-        for row in cursor.fetchall():
-            annotations.append({
-                'id': row[0],
-                'audio_filename': row[1],
-                'transcript': row[2],
-                'original_transcript': row[3],
-                'recording_mode': row[4],
-                'language': row[5],
-                'duration': row[6],
-                'created_at': row[7],
-                'updated_at': row[8]
-            })
-        conn.close()
+        annotations = database_manager.get_project_annotations(str(project_id))
         return jsonify({'success': True, 'annotations': annotations})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -140,17 +94,14 @@ def save_annotation():
         if not all([project_id, audio_data, transcript]):
             return jsonify({'success': False, 'error': 'Missing required fields'})
 
-        # Get project workspace path
-        conn = sqlite3.connect('audio_annotations.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT workspace_path FROM projects WHERE id = ?', (project_id,))
-        project = cursor.fetchone()
+        # Get project workspace path from database manager
+        projects = database_manager.get_projects()
+        project = next((p for p in projects if str(p['id']) == str(project_id)), None)
 
         if not project:
-            conn.close()
             return jsonify({'success': False, 'error': 'Project not found'})
 
-        workspace_path = project[0]
+        workspace_path = project['workspace_path']
 
         # Generate unique filename
         timestamp = int(time.time() * 1000)
@@ -160,25 +111,23 @@ def save_annotation():
         # Decode audio data
         audio_bytes = base64.b64decode(audio_data)
 
+        # Create directories if they don't exist (for local storage)
+        if storage_manager.storage_mode == 'local':
+            os.makedirs(workspace_path, exist_ok=True)
+            os.makedirs(f"{workspace_path}/audio", exist_ok=True)
+
         # Save audio file using storage manager
         try:
             stored_path = storage_manager.save_file(audio_bytes, audio_path)
             print(f"[INFO] Audio saved via storage manager: {stored_path}")
         except Exception as storage_error:
-            conn.close()
             return jsonify({'success': False, 'error': f'Failed to save audio: {str(storage_error)}'})
 
-        # Save to database (store the relative path, not the full storage path)
-        cursor.execute('''
-            INSERT INTO annotations (project_id, audio_filename, audio_path, transcript,
-                                   original_transcript, recording_mode, language, duration)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (project_id, audio_filename, audio_path, transcript, transcript,
-              recording_mode, language, duration))
-
-        annotation_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
+        # Save to database using database manager
+        annotation_id = database_manager.save_annotation(
+            str(project_id), audio_filename, audio_path,
+            transcript, recording_mode, language, duration
+        )
 
         return jsonify({'success': True, 'annotation_id': annotation_id})
     except Exception as e:
@@ -195,18 +144,14 @@ def serve_annotation_audio(filename):
             print(f"[ERROR] Invalid filename: {filename}", file=sys.stderr)
             return jsonify({'error': 'Invalid filename'}), 400
 
-        # Find the audio file in any project workspace
-        conn = sqlite3.connect('audio_annotations.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT audio_path, project_id FROM annotations WHERE audio_filename = ?', (filename,))
-        result = cursor.fetchone()
-        conn.close()
+        # Find the audio file using database manager
+        annotation = database_manager.get_annotation_by_filename(filename)
 
-        if not result:
+        if not annotation:
             print(f"[ERROR] Audio file not found in database: {filename}", file=sys.stderr)
             return jsonify({'error': 'Audio file not found'}), 404
 
-        audio_path = result[0]
+        audio_path = annotation['audio_path']
         print(f"[DEBUG] Audio path from database: {audio_path}", file=sys.stderr)
 
         # Try to load file using storage manager
@@ -260,17 +205,13 @@ def update_transcript():
         if not all([annotation_id, transcript]):
             return jsonify({'success': False, 'error': 'Missing required fields'})
 
-        conn = sqlite3.connect('audio_annotations.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE annotations 
-            SET transcript = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (transcript, annotation_id))
-        conn.commit()
-        conn.close()
+        # Use database manager to update transcript
+        success = database_manager.update_transcript(str(annotation_id), transcript)
 
-        return jsonify({'success': True})
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': 'Failed to update transcript'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -283,24 +224,13 @@ def delete_annotation():
         if not annotation_id:
             return jsonify({'success': False, 'error': 'Annotation ID is required'})
 
-        conn = sqlite3.connect('audio_annotations.db')
-        cursor = conn.cursor()
+        # Use database manager to soft delete annotation
+        success = database_manager.delete_annotation(str(annotation_id))
 
-        # Soft delete by setting deleted flag to 'Y'
-        cursor.execute('''
-            UPDATE annotations 
-            SET deleted = 'Y', updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (annotation_id,))
-
-        if cursor.rowcount == 0:
-            conn.close()
-            return jsonify({'success': False, 'error': 'Annotation not found'})
-
-        conn.commit()
-        conn.close()
-
-        return jsonify({'success': True, 'message': 'Annotation deleted successfully'})
+        if success:
+            return jsonify({'success': True, 'message': 'Annotation deleted successfully'})
+        else:
+            return jsonify({'success': False, 'error': 'Annotation not found or could not be deleted'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -962,18 +892,6 @@ def test_storage():
             'success': False,
             'error': f'Storage test failed: {str(e)}'
         })
-
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    return render_template('index.html')
-
-@app.route('/diarization')
-def diarization():
-    return render_template('diarization.html')
-
-@app.route('/audio-annotation')
-def audio_annotation():
-    return render_template('audio_annotation.html')
 
 # Server-side flag to control voice upload persistence
 VOICE_UPLOAD_PERSIST = os.getenv('VOICE_UPLOAD_PERSIST', 'no').lower() == 'yes'

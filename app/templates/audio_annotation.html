@@ -32,6 +32,7 @@
                         <a class="nav-link" href="/">Main App</a>
                         <a class="nav-link" href="/diarization">Speaker Diarization</a>
                         <a class="nav-link active" href="/audio-annotation">Audio Annotation</a>
+                        <a class="nav-link" href="/batch-upload">Batch Upload</a>
                     </div>
                 </div>
             </nav>
@@ -99,7 +100,7 @@
             <div class="card-body">
                 <!-- Recording Mode Selection -->
                 <div class="row mb-3">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <div class="form-check">
                             <input class="form-check-input" type="radio" name="recording-mode" id="start-stop-mode" value="start-stop" checked>
                             <label class="form-check-label" for="start-stop-mode">
@@ -108,12 +109,21 @@
                             </label>
                         </div>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <div class="form-check">
                             <input class="form-check-input" type="radio" name="recording-mode" id="streaming-mode" value="streaming">
                             <label class="form-check-label" for="streaming-mode">
                                 <strong>⏸️ Streaming with Pause</strong><br>
                                 <small class="text-muted">Auto-stop after configured pause</small>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="recording-mode" id="batch-audio-mode" value="batch-audio">
+                            <label class="form-check-label" for="batch-audio-mode">
+                                <strong>🎵 Batch Audio Upload</strong><br>
+                                <small class="text-muted">Upload multiple audio files for transcription</small>
                             </label>
                         </div>
                     </div>
@@ -147,7 +157,7 @@
                 </div>
 
                 <!-- Recording Controls -->
-                <div class="recording-controls">
+                <div class="recording-controls" id="standard-recording-controls">
                     <button id="start-recording-btn" class="btn btn-success btn-lg me-2">
                         <i class="bi bi-mic"></i> Start Recording
                     </button>
@@ -160,6 +170,126 @@
                     <div id="recording-status" class="mt-3">
                         <span id="recording-indicator" class="recording-indicator" style="display: none;">● RECORDING</span>
                         <span id="pause-timer" style="display: none; color: orange; font-weight: bold;"></span>
+                    </div>
+                </div>
+
+                <!-- Batch Audio Upload Controls -->
+                <div class="batch-upload-controls" id="batch-upload-controls" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">🎵 Batch Audio Upload & Transcription</h6>
+                        </div>
+                        <div class="card-body">
+                            <!-- Upload Mode Selection -->
+                            <div class="row mb-3">
+                                <div class="col-12">
+                                    <div class="btn-group" role="group" aria-label="Upload mode">
+                                        <input type="radio" class="btn-check" name="upload-mode" id="file-upload-mode" value="file" checked autocomplete="off">
+                                        <label class="btn btn-outline-primary" for="file-upload-mode">📁 File Upload</label>
+
+                                        <input type="radio" class="btn-check" name="upload-mode" id="live-record-mode" value="live" autocomplete="off">
+                                        <label class="btn btn-outline-primary" for="live-record-mode">🎤 Live Recording</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- File Upload Section -->
+                            <div id="file-upload-section">
+                                <div class="row mb-3">
+                                    <div class="col-md-8">
+                                        <label for="audio-files-input" class="form-label">Select Audio Files:</label>
+                                        <input type="file" id="audio-files-input" class="form-control" multiple
+                                               accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg">
+                                        <small class="form-text text-muted">
+                                            Select multiple audio files. Supported formats: MP3, WAV, M4A, AAC, OGG
+                                        </small>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <button id="upload-audios-btn" class="btn btn-primary mt-4" disabled>
+                                            📤 Upload Audios
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Live Recording Section -->
+                            <div id="live-recording-section" style="display: none;">
+                                <div class="card border-secondary">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0">🎤 Live Audio Recording</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row align-items-center">
+                                            <div class="col-md-6">
+                                                <div class="d-flex gap-2 align-items-center">
+                                                    <button id="start-live-recording-btn" class="btn btn-success">
+                                                        <i class="bi bi-mic"></i> Start Recording
+                                                    </button>
+                                                    <button id="stop-live-recording-btn" class="btn btn-danger" style="display: none;">
+                                                        <i class="bi bi-stop"></i> Stop
+                                                    </button>
+                                                    <button id="upload-live-recording-btn" class="btn btn-primary" style="display: none;">
+                                                        📤 Upload Recording
+                                                    </button>
+                                                </div>
+                                                <div id="live-recording-status" class="mt-2">
+                                                    <span id="live-recording-indicator" class="recording-indicator" style="display: none;">● RECORDING</span>
+                                                    <span id="live-recording-timer" class="text-muted" style="display: none;">00:00</span>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div id="live-recording-preview" style="display: none;">
+                                                    <audio id="live-preview-audio" class="audio-player w-100" controls></audio>
+                                                    <small class="text-muted">Duration: <span id="live-preview-duration">0</span>s</small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Audio Queue (for both file upload and live recording) -->
+                            <div id="audio-queue-section" style="display: none;">
+                                <h6>Audio Queue</h6>
+                                <div id="audio-queue" class="mb-3"></div>
+
+                                <div class="d-flex gap-2 mb-3">
+                                    <button id="transcribe-all-btn" class="btn btn-success">
+                                        🎯 Transcribe All Audios
+                                    </button>
+                                    <button id="clear-queue-btn" class="btn btn-outline-danger">
+                                        🗑️ Clear Queue
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Individual Audio Grid -->
+                            <div id="individual-audio-grid-section" style="display: none;">
+                                <h6>Audio Recordings</h6>
+                                <div id="individual-audio-grid"></div>
+                            </div>
+
+                            <!-- Transcription Progress -->
+                            <div id="transcription-progress-section" style="display: none;">
+                                <h6>Transcription Progress</h6>
+                                <div class="progress mb-2">
+                                    <div id="transcription-progress-bar" class="progress-bar" role="progressbar"
+                                         style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                                </div>
+                                <p id="transcription-status" class="text-muted small">Ready to start...</p>
+                            </div>
+
+                            <!-- Transcribed Audios -->
+                            <div id="transcribed-audios-section" style="display: none;">
+                                <h6>Transcribed Audios</h6>
+                                <div id="transcribed-audios-list"></div>
+                                <div class="mt-3">
+                                    <button id="save-all-transcriptions-btn" class="btn btn-primary">
+                                        💾 Save All Transcriptions
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -285,6 +415,10 @@
                     recordingMode = this.value;
                     document.getElementById('pause-duration-container').style.display =
                         this.value === 'streaming' ? 'block' : 'none';
+                    document.getElementById('standard-recording-controls').style.display =
+                        this.value === 'batch-audio' ? 'none' : 'flex';
+                    document.getElementById('batch-upload-controls').style.display =
+                        this.value === 'batch-audio' ? 'block' : 'none';
                 });
             });
 
@@ -303,6 +437,28 @@
             // Annotations management
             document.getElementById('refresh-annotations-btn').addEventListener('click', loadAnnotations);
             document.getElementById('export-annotations-btn').addEventListener('click', exportAnnotations);
+
+            // Batch audio upload
+            document.getElementById('audio-files-input').addEventListener('change', updateAudioFileList);
+            document.getElementById('upload-audios-btn').addEventListener('click', uploadAudios);
+            document.getElementById('transcribe-all-btn').addEventListener('click', transcribeAllAudios);
+            document.getElementById('clear-queue-btn').addEventListener('click', clearAudioQueue);
+            document.getElementById('save-all-transcriptions-btn').addEventListener('click', saveAllTranscriptions);
+
+            // Live recording
+            document.getElementById('start-live-recording-btn').addEventListener('click', startLiveRecording);
+            document.getElementById('stop-live-recording-btn').addEventListener('click', stopLiveRecording);
+            document.getElementById('upload-live-recording-btn').addEventListener('click', uploadLiveRecording);
+
+            // Upload mode toggle
+            document.querySelectorAll('input[name="upload-mode"]').forEach(radio => {
+                radio.addEventListener('change', function() {
+                    const isFileUpload = this.value === 'file';
+                    document.getElementById('file-upload-section').style.display = isFileUpload ? 'block' : 'none';
+                    document.getElementById('live-recording-section').style.display = isFileUpload ? 'none' : 'block';
+                    document.getElementById('audio-queue-section').style.display = 'none';
+                });
+            });
         }
 
         async function createProject() {
@@ -798,6 +954,643 @@
                 }
             }, 5000);
         }
-    </script>
+
+        // Batch audio upload functions
+        let audioFiles = [];
+        let transcribingAudios = false;
+        let transcribedAudios = [];
+
+        function updateAudioFileList() {
+            const input = document.getElementById('audio-files-input');
+            const fileList = document.getElementById('audio-queue');
+            fileList.innerHTML = '';
+
+            audioFiles = Array.from(input.files);
+
+            audioFiles.forEach((file, index) => {
+                const listItem = document.createElement('div');
+                listItem.className = 'd-flex justify-content-between align-items-center mb-2 p-2 border rounded';
+                listItem.innerHTML = `
+                    <div>
+                        <strong>${file.name}</strong>
+                        <small class="text-muted">(${formatFileSize(file.size)})</small>
+                    </div>
+                    <button class="btn btn-sm btn-outline-danger" onclick="removeAudioFile(${index})">
+                        Remove
+                    </button>
+                `;
+                fileList.appendChild(listItem);
+            });
+
+            document.getElementById('upload-audios-btn').disabled = audioFiles.length === 0;
+            document.getElementById('audio-queue-section').style.display = audioFiles.length > 0 ? 'block' : 'none';
+        }
+
+        function removeAudioFile(index) {
+            audioFiles.splice(index, 1);
+            // Update the file input
+            const input = document.getElementById('audio-files-input');
+            const dt = new DataTransfer();
+            audioFiles.forEach(file => dt.items.add(file));
+            input.files = dt.files;
+            updateAudioFileList();
+        }
+
+        async function uploadAudios() {
+            if (audioFiles.length === 0) return;
+
+            const formData = new FormData();
+            audioFiles.forEach(file => {
+                formData.append('audio_files', file);
+            });
+
+            try {
+                showMessage('Uploading audios...', 'info');
+                const response = await fetch('/api/annotation/upload-audios', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage(`${result.audio_files.length} audios uploaded successfully!`, 'success');
+                    // Enable transcription button
+                    document.getElementById('transcribe-all-btn').disabled = false;
+                    // Store uploaded files for transcription
+                    window.uploadedAudioFiles = result.audio_files;
+                } else {
+                    showMessage('Error uploading audios: ' + result.error, 'danger');
+                }
+            } catch (error) {
+                showMessage('Error uploading audios: ' + error.message, 'danger');
+            }
+        }
+
+        async function transcribeAllAudios() {
+            if (!currentProject) {
+                showMessage('Please select a project first', 'warning');
+                return;
+            }
+
+            if (!window.uploadedAudioFiles || window.uploadedAudioFiles.length === 0) {
+                showMessage('No audios uploaded yet', 'warning');
+                return;
+            }
+
+            transcribingAudios = true;
+            document.getElementById('transcription-progress-section').style.display = 'block';
+            document.getElementById('transcribed-audios-section').style.display = 'none';
+            document.getElementById('transcribe-all-btn').disabled = true;
+
+            try {
+                showMessage('Starting batch transcription...', 'info');
+
+                const response = await fetch('/api/annotation/batch-transcribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        project_id: currentProject.id,
+                        audio_files: window.uploadedAudioFiles,
+                        language: document.getElementById('annotation-language').value
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    transcribedAudios = result.transcribed_audios;
+
+                    // Update progress to 100%
+                    document.getElementById('transcription-progress-bar').style.width = '100%';
+                    document.getElementById('transcription-progress-bar').setAttribute('aria-valuenow', '100');
+                    document.getElementById('transcription-status').textContent =
+                        `Transcription completed! ${result.transcribed_count} audios processed successfully.`;
+
+                    if (result.failed_count > 0) {
+                        showMessage(`${result.transcribed_count} audios transcribed, ${result.failed_count} failed`, 'warning');
+                        console.warn('Failed audios:', result.failed_audios);
+                    } else {
+                        showMessage(`All ${result.transcribed_count} audios transcribed successfully!`, 'success');
+                    }
+
+                    // Show transcribed audios section
+                    renderTranscribedAudios(transcribedAudios);
+                    document.getElementById('transcribed-audios-section').style.display = 'block';
+                } else {
+                    showMessage('Batch transcription failed: ' + result.error, 'danger');
+                }
+            } catch (error) {
+                showMessage('Error during batch transcription: ' + error.message, 'danger');
+            } finally {
+                transcribingAudios = false;
+                document.getElementById('transcribe-all-btn').disabled = false;
+            }
+        }
+
+        function renderTranscribedAudios(audios) {
+            const list = document.getElementById('transcribed-audios-list');
+            list.innerHTML = '';
+
+            audios.forEach((audio, index) => {
+                const audioItem = document.createElement('div');
+                audioItem.className = 'border p-3 mb-3 rounded';
+                audioItem.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <strong>${audio.original_name}</strong>
+                            <small class="text-muted ms-2">(${formatDuration(audio.duration)})</small>
+                        </div>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-sm btn-outline-primary" onclick="editTranscript(${index})">
+                                Edit
+                            </button>
+                            <button class="btn btn-sm btn-outline-success" onclick="saveIndividualAudio(${index})">
+                                Save
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="removeTranscribedAudio(${index})">
+                                Remove
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <textarea class="form-control transcript-editor" id="transcript-${index}"
+                                  rows="3" readonly>${audio.transcript}</textarea>
+                    </div>
+                `;
+                list.appendChild(audioItem);
+            });
+        }
+
+        function editTranscript(index) {
+            const textarea = document.getElementById(`transcript-${index}`);
+            textarea.readOnly = !textarea.readOnly;
+
+            if (!textarea.readOnly) {
+                textarea.focus();
+                textarea.style.backgroundColor = '#fff3cd';
+            } else {
+                textarea.style.backgroundColor = '';
+                // Update the transcript in our data
+                transcribedAudios[index].transcript = textarea.value;
+            }
+        }
+
+        async function saveIndividualAudio(index) {
+            if (!currentProject) {
+                showMessage('Please select a project first', 'warning');
+                return;
+            }
+
+            const audio = transcribedAudios[index];
+            if (!audio) return;
+
+            try {
+                showMessage(`Saving ${audio.original_name}...`, 'info');
+
+                const response = await fetch('/api/annotation/save-batch-annotations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        project_id: currentProject.id,
+                        annotations: [audio]
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage(`${audio.original_name} saved successfully!`, 'success');
+                    // Mark as saved in UI
+                    const audioElement = document.getElementById(`transcript-${index}`).closest('.border');
+                    audioElement.style.backgroundColor = '#d4edda';
+
+                    // Refresh annotations grid
+                    loadAnnotations();
+                } else {
+                    showMessage(`Error saving ${audio.original_name}: ${result.error}`, 'danger');
+                }
+            } catch (error) {
+                showMessage(`Error saving ${audio.original_name}: ${error.message}`, 'danger');
+            }
+        }
+
+        function removeTranscribedAudio(index) {
+            if (confirm('Remove this audio from the transcription list?')) {
+                transcribedAudios.splice(index, 1);
+                renderTranscribedAudios(transcribedAudios);
+            }
+        }
+
+        async function saveAllTranscriptions() {
+            if (!currentProject) {
+                showMessage('Please select a project first', 'warning');
+                return;
+            }
+
+            if (transcribedAudios.length === 0) {
+                showMessage('No transcriptions to save', 'warning');
+                return;
+            }
+
+            try {
+                showMessage('Saving all transcriptions...', 'info');
+
+                const response = await fetch('/api/annotation/save-batch-annotations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        project_id: currentProject.id,
+                        annotations: transcribedAudios
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    if (result.failed_count > 0) {
+                        showMessage(`${result.saved_count} annotations saved, ${result.failed_count} failed`, 'warning');
+                    } else {
+                        showMessage(`All ${result.saved_count} annotations saved successfully!`, 'success');
+                    }
+
+                    // Clear the batch upload interface
+                    clearAudioQueue();
+                    document.getElementById('transcribed-audios-section').style.display = 'none';
+                    document.getElementById('transcription-progress-section').style.display = 'none';
+
+                    // Refresh annotations grid
+                    loadAnnotations();
+                } else {
+                    showMessage('Error saving annotations: ' + result.error, 'danger');
+                }
+            } catch (error) {
+                showMessage('Error saving annotations: ' + error.message, 'danger');
+            }
+        }
+
+        function clearAudioQueue() {
+            audioFiles = [];
+            transcribedAudios = [];
+            window.uploadedAudioFiles = [];
+            document.getElementById('audio-files-input').value = '';
+            document.getElementById('audio-queue-section').style.display = 'none';
+            document.getElementById('transcription-progress-section').style.display = 'none';
+            document.getElementById('transcribed-audios-section').style.display = 'none';
+            document.getElementById('upload-audios-btn').disabled = true;
+            document.getElementById('transcribe-all-btn').disabled = true;
+        }
+
+        function formatFileSize(size) {
+            if (size < 1024) return size + ' B';
+            else if (size < 1024 * 1024) return (size / 1024).toFixed(1) + ' KB';
+            else if (size < 1024 * 1024 * 1024) return (size / (1024 * 1024)).toFixed(1) + ' MB';
+            else return (size / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+        }
+
+        // Live recording functions
+        let liveMediaRecorder = null;
+        let liveAudioChunks = [];
+        let isLiveRecording = false;
+
+        async function startLiveRecording() {
+            if (!currentProject) {
+                showMessage('Please select or create a project first', 'warning');
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                liveMediaRecorder = new MediaRecorder(stream);
+                liveAudioChunks = [];
+                isLiveRecording = true;
+
+                liveMediaRecorder.ondataavailable = event => {
+                    if (event.data.size > 0) {
+                        liveAudioChunks.push(event.data);
+                    }
+                };
+
+                liveMediaRecorder.onstop = () => {
+                    if (liveAudioChunks.length > 0) {
+                        processLiveRecording();
+                    }
+                };
+
+                liveMediaRecorder.start();
+
+                // Update UI
+                document.getElementById('start-live-recording-btn').style.display = 'none';
+                document.getElementById('stop-live-recording-btn').style.display = 'inline-block';
+                document.getElementById('live-recording-indicator').style.display = 'inline';
+                document.getElementById('live-recording-timer').style.display = 'inline';
+
+                // Start timer
+                startLiveRecordingTimer();
+
+                showMessage('Live recording started...', 'info');
+            } catch (error) {
+                showMessage('Error accessing microphone: ' + error.message, 'danger');
+            }
+        }
+
+        function stopLiveRecording() {
+            if (liveMediaRecorder && isLiveRecording) {
+                liveMediaRecorder.stop();
+                isLiveRecording = false;
+
+                // Stop all tracks
+                const stream = liveMediaRecorder.stream;
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                }
+
+                // Update UI
+                document.getElementById('start-live-recording-btn').style.display = 'inline-block';
+                document.getElementById('stop-live-recording-btn').style.display = 'none';
+                document.getElementById('live-recording-indicator').style.display = 'none';
+                document.getElementById('live-recording-timer').style.display = 'none';
+            }
+        }
+
+        function startLiveRecordingTimer() {
+            let startTime = Date.now();
+            document.getElementById('live-recording-timer').textContent = '00:00';
+
+            function updateTimer() {
+                if (!isLiveRecording) return;
+
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                const minutes = Math.floor(elapsed / 60);
+                const seconds = elapsed % 60;
+
+                document.getElementById('live-recording-timer').textContent =
+                    `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+                requestAnimationFrame(updateTimer);
+            }
+
+            updateTimer();
+        }
+
+        function processLiveRecording() {
+            if (liveAudioChunks.length === 0) return;
+
+            const audioBlob = new Blob(liveAudioChunks, { type: 'audio/webm' });
+            const audioUrl = URL.createObjectURL(audioBlob);
+
+            // Calculate duration
+            const audio = document.createElement('audio');
+            audio.src = audioUrl;
+            audio.addEventListener('loadedmetadata', () => {
+                const duration = audio.duration;
+
+                // Update preview
+                document.getElementById('live-preview-audio').src = audioUrl;
+                document.getElementById('live-preview-duration').textContent = duration.toFixed(1);
+                document.getElementById('live-recording-preview').style.display = 'block';
+                document.getElementById('upload-live-recording-btn').style.display = 'inline-block';
+
+                showMessage('Live recording completed! Preview and upload.', 'success');
+            });
+        }
+
+        async function uploadLiveRecording() {
+            if (liveAudioChunks.length === 0) {
+                showMessage('No recording to upload', 'warning');
+                return;
+            }
+
+            const audioBlob = new Blob(liveAudioChunks, { type: 'audio/webm' });
+            const reader = new FileReader();
+
+            reader.onload = async function() {
+                const base64data = reader.result.split(',')[1];
+
+                try {
+                    showMessage('Uploading live recording...', 'info');
+
+                    const response = await fetch('/api/annotation/upload-live-audio', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            project_id: currentProject.id,
+                            audio_data: base64data,
+                            audio_name: `live_recording_${Date.now()}.webm`,
+                            language: document.getElementById('annotation-language').value
+                        })
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        showMessage('Live recording uploaded successfully!', 'success');
+
+                        // Add to individual audio grid
+                        addToIndividualAudioGrid(result.audio_item);
+
+                        // Clear the live recording
+                        clearLiveRecording();
+                    } else {
+                        showMessage('Error uploading live recording: ' + result.error, 'danger');
+                    }
+                } catch (error) {
+                    showMessage('Error uploading live recording: ' + error.message, 'danger');
+                }
+            };
+
+            reader.readAsDataURL(audioBlob);
+        }
+
+        function clearLiveRecording() {
+            liveAudioChunks = [];
+            document.getElementById('live-recording-preview').style.display = 'none';
+            document.getElementById('upload-live-recording-btn').style.display = 'none';
+
+            // Clean up audio URL
+            const audioElement = document.getElementById('live-preview-audio');
+            if (audioElement.src) {
+                URL.revokeObjectURL(audioElement.src);
+                audioElement.src = '';
+            }
+        }
+
+        function addToIndividualAudioGrid(audioItem) {
+            const gridSection = document.getElementById('individual-audio-grid-section');
+            const grid = document.getElementById('individual-audio-grid');
+
+            gridSection.style.display = 'block';
+
+            const audioRow = document.createElement('div');
+            audioRow.className = 'audio-row mb-3';
+            audioRow.id = `audio-row-${audioItem.id}`;
+
+            audioRow.innerHTML = `
+                <div class="row align-items-center">
+                    <div class="col-md-3">
+                        <audio class="audio-player w-100" controls>
+                            <source src="/api/annotation/serve-live-audio/${audioItem.id}" type="audio/wav">
+                        </audio>
+                        <small class="text-muted">Duration: ${formatDuration(audioItem.duration)}</small>
+                    </div>
+                    <div class="col-md-6">
+                        <textarea class="form-control transcript-editor"
+                                  id="live-transcript-${audioItem.id}"
+                                  rows="3"
+                                  placeholder="Transcript will appear here after transcription..."
+                                  readonly></textarea>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex flex-column gap-2">
+                            <button class="btn btn-sm btn-primary" onclick="transcribeIndividualAudio('${audioItem.id}')">
+                                🎯 Transcribe
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary" onclick="editIndividualTranscript('${audioItem.id}')" disabled>
+                                ✏️ Edit
+                            </button>
+                            <button class="btn btn-sm btn-success" onclick="saveIndividualLiveAudio('${audioItem.id}')" disabled>
+                                💾 Save
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="removeIndividualAudio('${audioItem.id}')">
+                                🗑️ Remove
+                            </button>
+                        </div>
+                        <div class="mt-2">
+                            <span class="badge bg-secondary" id="status-${audioItem.id}">Not Transcribed</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            grid.appendChild(audioRow);
+        }
+
+        async function transcribeIndividualAudio(audioId) {
+            try {
+                showMessage('Transcribing audio...', 'info');
+
+                const response = await fetch('/api/annotation/transcribe-individual-audio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        audio_id: audioId,
+                        language: document.getElementById('annotation-language').value
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Update transcript
+                    const textarea = document.getElementById(`live-transcript-${audioId}`);
+                    textarea.value = result.transcript;
+                    textarea.readOnly = false;
+
+                    // Update status
+                    const statusBadge = document.getElementById(`status-${audioId}`);
+                    statusBadge.textContent = 'Transcribed';
+                    statusBadge.className = 'badge bg-success';
+
+                    // Enable edit and save buttons
+                    const editBtn = document.querySelector(`button[onclick="editIndividualTranscript('${audioId}')"]`);
+                    const saveBtn = document.querySelector(`button[onclick="saveIndividualLiveAudio('${audioId}')"]`);
+                    editBtn.disabled = false;
+                    saveBtn.disabled = false;
+
+                    showMessage('Audio transcribed successfully!', 'success');
+                } else {
+                    showMessage('Error transcribing audio: ' + result.error, 'danger');
+                }
+            } catch (error) {
+                showMessage('Error transcribing audio: ' + error.message, 'danger');
+            }
+        }
+
+        function editIndividualTranscript(audioId) {
+            const textarea = document.getElementById(`live-transcript-${audioId}`);
+            const isEditing = !textarea.readOnly;
+
+            if (!isEditing) {
+                textarea.readOnly = false;
+                textarea.focus();
+                textarea.style.backgroundColor = '#fff3cd';
+            } else {
+                textarea.readOnly = true;
+                textarea.style.backgroundColor = '';
+            }
+        }
+
+        async function saveIndividualLiveAudio(audioId) {
+            const textarea = document.getElementById(`live-transcript-${audioId}`);
+            const transcript = textarea.value.trim();
+
+            if (!transcript) {
+                showMessage('Please enter a transcript before saving', 'warning');
+                return;
+            }
+
+            try {
+                showMessage('Saving audio annotation...', 'info');
+
+                const response = await fetch('/api/annotation/save-individual-audio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        project_id: currentProject.id,
+                        audio_id: audioId,
+                        transcript: transcript
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Update status
+                    const statusBadge = document.getElementById(`status-${audioId}`);
+                    statusBadge.textContent = 'Saved';
+                    statusBadge.className = 'badge bg-primary';
+
+                    // Mark row as saved
+                    const audioRow = document.getElementById(`audio-row-${audioId}`);
+                    audioRow.style.backgroundColor = '#d4edda';
+
+                    // Refresh annotations grid
+                    loadAnnotations();
+
+                    showMessage('Audio annotation saved successfully!', 'success');
+                } else {
+                    showMessage('Error saving audio annotation: ' + result.error, 'danger');
+                }
+            } catch (error) {
+                showMessage('Error saving audio annotation: ' + error.message, 'danger');
+            }
+        }
+
+        function removeIndividualAudio(audioId) {
+            if (confirm('Remove this audio recording?')) {
+                // Call API to remove from server
+                fetch('/api/annotation/remove-individual-audio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ audio_id: audioId })
+                });
+
+                // Remove from UI
+                const audioRow = document.getElementById(`audio-row-${audioId}`);
+                audioRow.remove();
+
+                // Hide grid section if no more items
+                const grid = document.getElementById('individual-audio-grid');
+                if (grid.children.length === 0) {
+                    document.getElementById('individual-audio-grid-section').style.display = 'none';
+                }
+
+                showMessage('Audio recording removed', 'info');
+            }
+        }
+        </script>
+
+    <!-- Bootstrap JS (for alerts) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

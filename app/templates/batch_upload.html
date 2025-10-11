@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Batch Audio Upload with Live Recording</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        body { background: #f8f9fa; }
+        .container { max-width: 1200px; margin-top: 40px; background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); padding: 32px; }
+        .form-label { font-weight: 500; }
+        .navigation-menu { margin-bottom: 20px; }
+        .recording-controls { background: #f8f9fa; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .audio-item {
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            background: #fff;
+        }
+        .audio-item.transcribing { background: #fff3cd; border-color: #ffeaa7; }
+        .audio-item.transcribed { background: #d1ecf1; border-color: #bee5eb; }
+        .audio-item.error { background: #f8d7da; border-color: #f5c6cb; }
+        .recording-indicator { color: #dc3545; font-weight: bold; animation: pulse 1s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .audio-preview { width: 100%; margin: 10px 0; }
+        .transcript-area { min-height: 80px; }
+        .batch-controls { background: #e9ecef; border-radius: 8px; padding: 20px; margin: 20px 0; }
+        .audio-list { max-height: 600px; overflow-y: auto; }
+        .duration-badge { background: #6c757d; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; }
+        .status-badge { padding: 2px 8px; border-radius: 12px; font-size: 0.8em; font-weight: 500; }
+        .status-pending { background: #ffc107; color: #212529; }
+        .status-transcribing { background: #17a2b8; color: white; }
+        .status-transcribed { background: #28a745; color: white; }
+        .status-error { background: #dc3545; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Navigation Menu -->
+        <div class="navigation-menu">
+            <nav class="navbar navbar-expand-lg navbar-light bg-light rounded">
+                <div class="container-fluid">
+                    <span class="navbar-brand mb-0 h1">Batch Audio Upload</span>
+                    <div class="navbar-nav">
+                        <a class="nav-link" href="/">Main App</a>
+                        <a class="nav-link" href="/diarization" target="_blank">Speaker Diarization</a>
+                        <a class="nav-link" href="/audio-annotation" target="_blank">Audio Annotation</a>
+                        <a class="nav-link active" href="/batch-upload">Batch Upload</a>
+                    </div>
+                </div>
+            </nav>
+        </div>
+
+        <h1 class="mb-4">Batch Audio Upload with Live Recording</h1>
+        <p class="text-muted mb-4">Record individual audio clips or upload files, then transcribe and edit each one separately.</p>
+
+        <!-- Project Selection -->
+        <div class="mb-4">
+            <div class="row">
+                <div class="col-md-6">
+                    <label for="project-select" class="form-label">Select Project:</label>
+                    <select id="project-select" class="form-select">
+                        <option value="">Choose a project...</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="language-select" class="form-label">Language:</label>
+                    <select id="language-select" class="form-select">
+                        <option value="en">English</option>
+                        <option value="hi">Hindi</option>
+                        <option value="es">Spanish</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <button id="create-project-btn" class="btn btn-outline-primary" style="margin-top: 32px;">Create New Project</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Recording Controls -->
+        <div class="recording-controls">
+            <h5>🎤 Live Recording</h5>
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <div class="d-flex align-items-center">
+                        <button id="start-recording-btn" class="btn btn-success me-2">Start Recording</button>
+                        <button id="stop-recording-btn" class="btn btn-danger me-2" disabled>Stop Recording</button>
+                        <span id="recording-indicator" class="recording-indicator" style="display: none;">● Recording...</span>
+                        <span id="recording-timer" class="ms-2 text-muted"></span>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="d-flex align-items-center">
+                        <label for="recording-duration" class="form-label me-2 mb-0">Max Duration:</label>
+                        <input type="range" id="recording-duration" class="form-range me-2" value="30" min="5" max="120" step="5" style="width: 120px;">
+                        <span id="recording-duration-value">30s</span>
+                    </div>
+                </div>
+            </div>
+            <div id="current-recording" style="display: none;" class="mt-3">
+                <audio id="current-audio" controls class="audio-preview"></audio>
+                <div class="mt-2">
+                    <button id="save-recording-btn" class="btn btn-primary me-2">Add to List</button>
+                    <button id="discard-recording-btn" class="btn btn-secondary">Discard</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- File Upload Controls -->
+        <div class="mb-4">
+            <h5>📁 File Upload</h5>
+            <div class="input-group">
+                <input type="file" id="file-upload" class="form-control" multiple accept="audio/*">
+                <button id="upload-files-btn" class="btn btn-outline-primary">Upload Files</button>
+            </div>
+        </div>
+
+        <!-- Audio List -->
+        <div class="audio-list">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5>Audio Clips</h5>
+                <div>
+                    <span id="audio-count-badge" class="badge bg-secondary">0 clips</span>
+                </div>
+            </div>
+            <div id="audio-items-container">
+                <div class="text-center text-muted py-4">
+                    <p>No audio clips yet. Start recording or upload files to begin.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Batch Controls -->
+        <div class="batch-controls" style="display: none;">
+            <h5>Batch Actions</h5>
+            <div class="d-flex flex-wrap gap-2">
+                <button id="transcribe-all-btn" class="btn btn-info">Transcribe All</button>
+                <button id="save-all-btn" class="btn btn-success">Save All to Project</button>
+                <button id="clear-all-btn" class="btn btn-outline-danger">Clear All</button>
+            </div>
+            <div class="mt-2">
+                <div id="batch-progress" class="progress" style="display: none;">
+                    <div id="batch-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
+                </div>
+                <small id="batch-status" class="text-muted"></small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Project Modal -->
+    <div class="modal fade" id="createProjectModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create New Project</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="project-name-input" class="form-label">Project Name:</label>
+                        <input type="text" id="project-name-input" class="form-control" placeholder="Enter project name">
+                    </div>
+                    <div class="mb-3">
+                        <label for="project-description-input" class="form-label">Description (optional):</label>
+                        <textarea id="project-description-input" class="form-control" rows="3" placeholder="Enter project description"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" id="create-project-submit" class="btn btn-primary">Create Project</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Initialize Socket.IO connection
+        const socket = io();
+
+        // Global variables
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let recordingStartTime = null;
+        let recordingTimer = null;
+        let currentRecordingBlob = null;
+        let audioItems = [];
+        let audioItemCounter = 0;
+
+        // DOM elements
+        const projectSelect = document.getElementById('project-select');
+        const languageSelect = document.getElementById('language-select');
+        const startRecordingBtn = document.getElementById('start-recording-btn');
+        const stopRecordingBtn = document.getElementById('stop-recording-btn');
+        const recordingIndicator = document.getElementById('recording-indicator');
+        const recordingTimerDisplay = document.getElementById('recording-timer');
+        const recordingDuration = document.getElementById('recording-duration');
+        const recordingDurationValue = document.getElementById('recording-duration-value');
+        const currentRecordingDiv = document.getElementById('current-recording');
+        const currentAudio = document.getElementById('current-audio');
+        const saveRecordingBtn = document.getElementById('save-recording-btn');
+        const discardRecordingBtn = document.getElementById('discard-recording-btn');
+        const fileUpload = document.getElementById('file-upload');
+        const uploadFilesBtn = document.getElementById('upload-files-btn');
+        const audioItemsContainer = document.getElementById('audio-items-container');
+        const audioCountBadge = document.getElementById('audio-count-badge');
+        const batchControls = document.querySelector('.batch-controls');
+        const transcribeAllBtn = document.getElementById('transcribe-all-btn');
+        const saveAllBtn = document.getElementById('save-all-btn');
+        const clearAllBtn = document.getElementById('clear-all-btn');
+        const batchProgress = document.getElementById('batch-progress');
+        const batchProgressBar = document.getElementById('batch-progress-bar');
+        const batchStatus = document.getElementById('batch-status');
+        const createProjectBtn = document.getElementById('create-project-btn');
+        const createProjectModal = new bootstrap.Modal(document.getElementById('createProjectModal'));
+        const createProjectSubmit = document.getElementById('create-project-submit');
+        const projectNameInput = document.getElementById('project-name-input');
+        const projectDescriptionInput = document.getElementById('project-description-input');
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadProjects();
+            setupEventListeners();
+            updateRecordingDurationDisplay();
+        });
+
+        function setupEventListeners() {
+            // Recording controls
+            startRecordingBtn.addEventListener('click', startRecording);
+            stopRecordingBtn.addEventListener('click', stopRecording);
+            saveRecordingBtn.addEventListener('click', saveCurrentRecording);
+            discardRecordingBtn.addEventListener('click', discardCurrentRecording);
+
+            // Recording duration slider
+            recordingDuration.addEventListener('input', updateRecordingDurationDisplay);
+
+            // File upload
+            uploadFilesBtn.addEventListener('click', uploadFiles);
+
+            // Batch actions
+            transcribeAllBtn.addEventListener('click', transcribeAll);
+            saveAllBtn.addEventListener('click', saveAll);
+            clearAllBtn.addEventListener('click', clearAll);
+
+            // Project management
+            createProjectBtn.addEventListener('click', () => createProjectModal.show());
+            createProjectSubmit.addEventListener('click', createNewProject);
+        }
+
+        function updateRecordingDurationDisplay() {
+            recordingDurationValue.textContent = recordingDuration.value + 's';
+        }
+
+        function loadProjects() {
+            fetch('/api/annotation/projects')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        projectSelect.innerHTML = '<option value="">Choose a project...</option>';
+                        data.projects.forEach(project => {
+                            const option = document.createElement('option');
+                            option.value = project.id;
+                            option.textContent = project.name;
+                            projectSelect.appendChild(option);
+                        });
+                    }
+                })
+                .catch(error => console.error('Error loading projects:', error));
+        }
+
+        function createNewProject() {
+            const name = projectNameInput.value.trim();
+            const description = projectDescriptionInput.value.trim();
+
+            if (!name) {
+                alert('Project name is required');
+                return;
+            }
+
+            fetch('/api/annotation/create-project', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project_name: name, description: description })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        createProjectModal.hide();
+                        projectNameInput.value = '';
+                        projectDescriptionInput.value = '';
+                        loadProjects();
+                        // Select the newly created project
+                        setTimeout(() => {
+                            projectSelect.value = data.project_id;
+                        }, 100);
+                    } else {
+                        alert('Error creating project: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error creating project:', error);
+                    alert('Error creating project');
+                });
+        }
+
+        function startRecording() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    audioChunks = [];
+                    mediaRecorder = new MediaRecorder(stream);
+
+                    mediaRecorder.ondataavailable = event => {
+                        if (event.data.size > 0) {
+                            audioChunks.push(event.data);
+                        }
+                    };
+
+                    mediaRecorder.onstop = () => {
+                        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                        currentRecordingBlob = blob;
+                        const url = URL.createObjectURL(blob);
+                        currentAudio.src = url;
+                        currentRecordingDiv.style.display = 'block';
+
+                        // Stop all tracks
+                        stream.getTracks().forEach(track => track.stop());
+                    };
+
+                    mediaRecorder.start();
+                    recordingStartTime = Date.now();
+
+                    // Update UI
+                    startRecordingBtn.disabled = true;
+                    stopRecordingBtn.disabled = false;
+                    recordingIndicator.style.display = 'inline';
+
+                    // Start timer
+                    recordingTimer = setInterval(updateRecordingTimer, 100);
+
+                    // Auto-stop after max duration
+                    const maxDuration = parseInt(recordingDuration.value) * 1000;
+                    setTimeout(() => {
+                        if (mediaRecorder && mediaRecorder.state === 'recording') {
+                            stopRecording();
+                        }
+                    }, maxDuration);
+                })
+                .catch(error => {
+                    console.error('Error accessing microphone:', error);
+                    alert('Error accessing microphone. Please check permissions.');
+                });
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+            }
+
+            // Update UI
+            startRecordingBtn.disabled = false;
+            stopRecordingBtn.disabled = true;
+            recordingIndicator.style.display = 'none';
+            recordingTimerDisplay.textContent = '';
+
+            // Clear timer
+            if (recordingTimer) {
+                clearInterval(recordingTimer);
+                recordingTimer = null;
+            }
+        }
+
+        function updateRecordingTimer() {
+            if (recordingStartTime) {
+                const elapsed = Date.now() - recordingStartTime;
+                const seconds = Math.floor(elapsed / 1000);
+                const deciseconds = Math.floor((elapsed % 1000) / 100);
+                recordingTimerDisplay.textContent = `${seconds}.${deciseconds}s`;
+            }
+        }
+
+        function saveCurrentRecording() {
+            if (!currentRecordingBlob) return;
+
+            const duration = currentAudio.duration || 0;
+            addAudioItem({
+                type: 'recording',
+                blob: currentRecordingBlob,
+                name: `Recording ${audioItemCounter + 1}`,
+                duration: duration
+            });
+
+            discardCurrentRecording();
+        }
+
+        function discardCurrentRecording() {
+            currentRecordingDiv.style.display = 'none';
+            currentRecordingBlob = null;
+            if (currentAudio.src) {
+                URL.revokeObjectURL(currentAudio.src);
+                currentAudio.src = '';
+            }
+        }
+
+        function uploadFiles() {
+            const files = fileUpload.files;
+            if (files.length === 0) {
+                alert('Please select files to upload');
+                return;
+            }
+
+            Array.from(files).forEach(file => {
+                addAudioItem({
+                    type: 'file',
+                    file: file,
+                    name: file.name,
+                    duration: 0 // Will be calculated during transcription
+                });
+            });
+
+            fileUpload.value = '';
+        }
+
+        function addAudioItem(itemData) {
+            const item = {
+                id: audioItemCounter++,
+                ...itemData,
+                status: 'pending',
+                transcript: '',
+                audioData: null
+            };
+
+            audioItems.push(item);
+            renderAudioItem(item);
+            updateAudioCount();
+            showBatchControls();
+        }
+
+        function renderAudioItem(item) {
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'audio-item';
+            itemDiv.id = `audio-item-${item.id}`;
+
+            itemDiv.innerHTML = `
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                        <strong>${item.name}</strong>
+                        <span class="duration-badge ms-2">${formatDuration(item.duration)}</span>
+                        <span class="status-badge status-${item.status} ms-2">${item.status}</span>
+                    </div>
+                    <button class="btn btn-sm btn-outline-danger" onclick="removeAudioItem(${item.id})">Remove</button>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <audio controls class="audio-preview" id="audio-${item.id}"></audio>
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-primary" onclick="transcribeItem(${item.id})">Transcribe</button>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Transcript:</label>
+                        <textarea class="form-control transcript-area" id="transcript-${item.id}"
+                                  placeholder="Transcript will appear here after transcription...">${item.transcript}</textarea>
+                    </div>
+                </div>
+            `;
+
+            // Insert at the beginning of the container (remove placeholder if it exists)
+            if (audioItemsContainer.firstChild && audioItemsContainer.firstChild.classList?.contains('text-center')) {
+                audioItemsContainer.removeChild(audioItemsContainer.firstChild);
+            }
+            audioItemsContainer.insertBefore(itemDiv, audioItemsContainer.firstChild);
+
+            // Set up audio preview
+            const audioElement = document.getElementById(`audio-${item.id}`);
+            if (item.type === 'recording' && item.blob) {
+                audioElement.src = URL.createObjectURL(item.blob);
+            } else if (item.type === 'file' && item.file) {
+                audioElement.src = URL.createObjectURL(item.file);
+            }
+        }
+
+        function removeAudioItem(itemId) {
+            const itemIndex = audioItems.findIndex(item => item.id === itemId);
+            if (itemIndex !== -1) {
+                const item = audioItems[itemIndex];
+
+                // Clean up object URLs
+                const audioElement = document.getElementById(`audio-${itemId}`);
+                if (audioElement && audioElement.src) {
+                    URL.revokeObjectURL(audioElement.src);
+                }
+
+                // Remove from array and DOM
+                audioItems.splice(itemIndex, 1);
+                const itemDiv = document.getElementById(`audio-item-${itemId}`);
+                if (itemDiv) {
+                    itemDiv.remove();
+                }
+
+                updateAudioCount();
+
+                // Show placeholder if no items left
+                if (audioItems.length === 0) {
+                    audioItemsContainer.innerHTML = `
+                        <div class="text-center text-muted py-4">
+                            <p>No audio clips yet. Start recording or upload files to begin.</p>
+                        </div>
+                    `;
+                    hideBatchControls();
+                }
+            }
+        }
+
+        function transcribeItem(itemId) {
+            const item = audioItems.find(item => item.id === itemId);
+            if (!item) return;
+
+            updateItemStatus(itemId, 'transcribing');
+
+            // Convert audio to base64 for transcription
+            let audioToTranscribe;
+            if (item.type === 'recording' && item.blob) {
+                audioToTranscribe = item.blob;
+            } else if (item.type === 'file' && item.file) {
+                audioToTranscribe = item.file;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const audioData = e.target.result.split(',')[1]; // Remove data:audio/... prefix
+
+                fetch('/api/annotation/transcribe-audio-file', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        audio_data: audioData,
+                        language: languageSelect.value
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        item.transcript = data.transcript;
+                        item.duration = data.duration;
+                        item.audioData = data.audio_data;
+
+                        document.getElementById(`transcript-${itemId}`).value = data.transcript;
+                        updateItemStatus(itemId, 'transcribed');
+
+                        // Update duration badge
+                        const itemDiv = document.getElementById(`audio-item-${itemId}`);
+                        const durationBadge = itemDiv.querySelector('.duration-badge');
+                        if (durationBadge) {
+                            durationBadge.textContent = formatDuration(data.duration);
+                        }
+                    } else {
+                        updateItemStatus(itemId, 'error');
+                        alert('Transcription failed: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Transcription error:', error);
+                    updateItemStatus(itemId, 'error');
+                    alert('Transcription failed');
+                });
+            };
+
+            reader.readAsDataURL(audioToTranscribe);
+        }
+
+        function updateItemStatus(itemId, status) {
+            const item = audioItems.find(item => item.id === itemId);
+            if (item) {
+                item.status = status;
+            }
+
+            const itemDiv = document.getElementById(`audio-item-${itemId}`);
+            if (itemDiv) {
+                // Update item class
+                itemDiv.className = `audio-item ${status}`;
+
+                // Update status badge
+                const statusBadge = itemDiv.querySelector('.status-badge');
+                if (statusBadge) {
+                    statusBadge.className = `status-badge status-${status}`;
+                    statusBadge.textContent = status;
+                }
+            }
+        }
+
+        function transcribeAll() {
+            const pendingItems = audioItems.filter(item => item.status === 'pending');
+            if (pendingItems.length === 0) {
+                alert('No items to transcribe');
+                return;
+            }
+
+            showBatchProgress();
+            let completed = 0;
+
+            pendingItems.forEach((item, index) => {
+                setTimeout(() => {
+                    transcribeItem(item.id);
+                    completed++;
+                    updateBatchProgress(completed, pendingItems.length, 'Transcribing...');
+
+                    if (completed === pendingItems.length) {
+                        setTimeout(() => hideBatchProgress(), 1000);
+                    }
+                }, index * 500); // Stagger requests
+            });
+        }
+
+        function saveAll() {
+            const projectId = projectSelect.value;
+            if (!projectId) {
+                alert('Please select a project first');
+                return;
+            }
+
+            const transcribedItems = audioItems.filter(item => item.status === 'transcribed');
+            if (transcribedItems.length === 0) {
+                alert('No transcribed items to save');
+                return;
+            }
+
+            showBatchProgress();
+
+            const annotations = transcribedItems.map(item => ({
+                original_name: item.name,
+                transcript: document.getElementById(`transcript-${item.id}`).value,
+                duration: item.duration,
+                audio_data: item.audioData,
+                language: languageSelect.value
+            }));
+
+            fetch('/api/annotation/save-batch-annotations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    project_id: projectId,
+                    annotations: annotations
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideBatchProgress();
+                if (data.success) {
+                    alert(`Successfully saved ${data.saved_count} annotations!`);
+                    clearAll();
+                } else {
+                    alert('Error saving annotations: ' + data.error);
+                }
+            })
+            .catch(error => {
+                hideBatchProgress();
+                console.error('Error saving annotations:', error);
+                alert('Error saving annotations');
+            });
+        }
+
+        function clearAll() {
+            if (audioItems.length === 0) return;
+
+            if (confirm('Are you sure you want to clear all audio clips?')) {
+                // Clean up object URLs
+                audioItems.forEach(item => {
+                    const audioElement = document.getElementById(`audio-${item.id}`);
+                    if (audioElement && audioElement.src) {
+                        URL.revokeObjectURL(audioElement.src);
+                    }
+                });
+
+                audioItems = [];
+                audioItemsContainer.innerHTML = `
+                    <div class="text-center text-muted py-4">
+                        <p>No audio clips yet. Start recording or upload files to begin.</p>
+                    </div>
+                `;
+                updateAudioCount();
+                hideBatchControls();
+            }
+        }
+
+        function updateAudioCount() {
+            audioCountBadge.textContent = `${audioItems.length} clip${audioItems.length === 1 ? '' : 's'}`;
+        }
+
+        function showBatchControls() {
+            if (audioItems.length > 0) {
+                batchControls.style.display = 'block';
+            }
+        }
+
+        function hideBatchControls() {
+            batchControls.style.display = 'none';
+        }
+
+        function showBatchProgress() {
+            batchProgress.style.display = 'block';
+            batchProgressBar.style.width = '0%';
+        }
+
+        function hideBatchProgress() {
+            batchProgress.style.display = 'none';
+            batchStatus.textContent = '';
+        }
+
+        function updateBatchProgress(completed, total, status) {
+            const percentage = Math.round((completed / total) * 100);
+            batchProgressBar.style.width = percentage + '%';
+            batchStatus.textContent = `${status} ${completed}/${total}`;
+        }
+
+        function formatDuration(seconds) {
+            if (seconds === 0) return '0s';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+        }
+    </script>
+</body>
+</html>

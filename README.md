@@ -4,6 +4,24 @@ This is a full-stack Flask web application for real-time and batch speech-to-tex
 
 ## 🚀 Recent Updates & Improvements (Latest Version)
 
+### ✅ **Progress Bar & User Feedback System - NEW!**
+- **ADDED**: Real-time progress indicators for all question submission scenarios
+- **FEATURE**: Animated progress bars with contextual messages ("Processing your voice...", "Auto-submitting to AI model...")
+- **IMPROVEMENT**: Clear visual feedback eliminates user uncertainty about processing status
+- **BENEFIT**: Users always know when their questions are being processed vs when the system is waiting
+
+### ✅ **Smart Auto-Submission Timer - NEW!**
+- **INTELLIGENT**: 2-second auto-submission timer triggers after transcription updates
+- **CANCELLATION**: Timer automatically cancels if user starts speaking again
+- **RESPONSIVE**: No more waiting for long pause intervals - questions submit quickly when ready
+- **CONTROL**: Works seamlessly with existing auto-submit toggle for user choice
+
+### ✅ **Configurable Recording Timeout - NEW!**
+- **USER CONTROL**: Recording timeout now configurable via UI slider (10 seconds to 5 minutes)
+- **FLEXIBLE**: Replace hardcoded limits with user-defined maximum recording duration
+- **VISUAL**: Real-time slider value display shows current timeout setting
+- **DEFAULT**: Sensible 60-second default with easy adjustment
+
 ### ✅ **Audio Denoising Compatibility Fixed**
 - **RESOLVED**: Replaced incompatible `demucs` with `noisereduce` library
 - **BENEFIT**: Full compatibility with numpy >=2.0 and modern Python environments
@@ -158,19 +176,36 @@ voice-stream/
 
 ## How It Works
 
-### 1. User Interface (index.html + stream.js)
+### 1. User Interface (index.html + stream.js) - UPDATED
 - User selects input mode (voice/text), language, and optionally enables streaming.
 - **NEW**: Option to enable noise cancellation for cleaner audio
-- If streaming is enabled:
-  - User sets pause detection interval.
-  - On "Start Recording", audio is captured and sent in real time to `/tts/stream`.
-  - Silence detection auto-stops recording after the specified interval.
-  - Partial transcriptions are shown live.
-- If streaming is not enabled:
-  - User can manually stop recording.
-  - The full audio is sent to the backend for transcription after recording ends.
-- The transcribed question is sent to the backend, which generates an answer using OpenAI.
-- The answer is displayed, and TTS audio can be played.
+- **NEW**: Enhanced streaming mode with editable transcription and submission controls
+
+#### Streaming Mode Features:
+- **Editable Question Box**: Transcribed text appears in an editable textarea, allowing users to modify the question before submission
+- **Auto Submit Option**: Users can choose between automatic and manual submission:
+  - **Auto Submit ON**: Questions are automatically sent to LLM after pause detection
+  - **Auto Submit OFF**: Users must manually click "Submit Question" button after transcription
+- **Real-time Transcription**: Audio chunks are processed in real-time and populate the question box
+- **Pause Detection**: Configurable silence detection (0.1-10 seconds) automatically stops recording
+- **Manual Control**: Users can edit transcribed text and decide when to submit questions
+
+#### Streaming Workflow:
+1. Enable "Use streaming" checkbox
+2. Choose Auto Submit behavior (automatic vs manual submission)
+3. Set pause detection interval
+4. Start recording - real-time transcription populates editable question box
+5. On pause detection:
+   - **Auto Submit ON**: Question automatically sent to LLM for processing
+   - **Auto Submit OFF**: "Submit Question" button appears for manual submission
+6. Users can edit transcribed text before submission
+7. Answer is generated and displayed with TTS playback option
+
+#### Non-Streaming Mode:
+- User can manually stop recording
+- The full audio is sent to the backend for transcription after recording ends
+- Question box remains read-only until transcription completes
+- Automatic submission to LLM for answer generation
 
 ### 2. Backend (routes.py) - UPDATED
 - `/tts/stream`: Receives audio chunks, converts to wav, **applies denoising**, transcribes with Whisper, returns partial text.

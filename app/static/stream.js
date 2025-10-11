@@ -8,13 +8,94 @@ let audioChunks = [];
 let recordingTimeout;
 // Last recorded audio blob
 let lastAudioBlob;
+// Auto-submission timer for streaming mode
+let autoSubmissionTimer = null;
+// Track if user is currently speaking
+let isUserSpeaking = false;
+
+// Progress bar control functions
+function showProgressBar(message = 'Processing...', detail = 'Submitting question to AI model...') {
+    const progressContainer = document.getElementById('processing-progress');
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+    const progressDetail = document.getElementById('progress-detail');
+
+    if (progressContainer) {
+        progressContainer.style.display = '';
+        progressText.textContent = message;
+        progressDetail.textContent = detail;
+
+        // Start with 0% and animate to 30%
+        progressBar.style.width = '0%';
+        progressBar.setAttribute('aria-valuenow', '0');
+
+        // Animate to 30% over 0.5 seconds
+        setTimeout(() => {
+            progressBar.style.width = '30%';
+            progressBar.setAttribute('aria-valuenow', '30');
+        }, 100);
+    }
+}
+
+function updateProgress(percentage, message, detail) {
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+    const progressDetail = document.getElementById('progress-detail');
+
+    if (progressBar) {
+        progressBar.style.width = percentage + '%';
+        progressBar.setAttribute('aria-valuenow', percentage);
+
+        if (message) progressText.textContent = message;
+        if (detail) progressDetail.textContent = detail;
+    }
+}
+
+function hideProgressBar() {
+    const progressContainer = document.getElementById('processing-progress');
+    const progressBar = document.getElementById('progress-bar');
+
+    if (progressContainer && progressBar) {
+        // Complete the progress bar first
+        progressBar.style.width = '100%';
+        progressBar.setAttribute('aria-valuenow', '100');
+
+        // Hide after a brief delay
+        setTimeout(() => {
+            progressContainer.style.display = 'none';
+            // Reset for next use
+            progressBar.style.width = '0%';
+            progressBar.setAttribute('aria-valuenow', '0');
+        }, 500);
+    }
+}
 
 // Toggle UI elements based on streaming checkbox
 window.toggleStreamingUI = function() {
     const useStreaming = document.getElementById('use-streaming').checked;
+    const autoSubmitGroup = document.getElementById('auto-submit-group');
+    const questionBox = document.getElementById('question-box');
+    const submitStreamingBtn = document.getElementById('submit-streaming-btn');
+
     document.getElementById('pause-interval-group').style.display = useStreaming ? '' : 'none';
     document.getElementById('stop-recording-btn').style.display = useStreaming ? 'none' : '';
     document.getElementById('pause-timer').innerText = '';
+
+    // Show/hide auto-submit checkbox only in streaming mode
+    if (autoSubmitGroup) {
+        autoSubmitGroup.style.display = useStreaming ? '' : 'none';
+    }
+
+    // Update question box and submit button visibility based on streaming mode
+    if (useStreaming) {
+        questionBox.readOnly = false; // Make question box editable in streaming mode
+        toggleAutoSubmit(); // Update submit button visibility
+    } else {
+        questionBox.readOnly = true; // Keep read-only in non-streaming voice mode
+        if (submitStreamingBtn) {
+            submitStreamingBtn.style.display = 'none';
+        }
+    }
 };
 
 // Call toggleStreamingUI on page load to set initial state
@@ -28,8 +109,29 @@ if (typeof window !== 'undefined') {
                 pauseValue.textContent = parseFloat(pauseSlider.value).toFixed(1);
             });
         }
+
+        // Set up recording timeout slider
+        const timeoutSlider = document.getElementById('recording-timeout');
+        const timeoutValue = document.getElementById('recording-timeout-value');
+        if (timeoutSlider && timeoutValue) {
+            timeoutSlider.addEventListener('input', function() {
+                timeoutValue.textContent = timeoutSlider.value;
+            });
+        }
     });
 }
+
+// Toggle auto-submit functionality
+window.toggleAutoSubmit = function() {
+    const useStreaming = document.getElementById('use-streaming').checked;
+    const autoSubmit = document.getElementById('auto-submit-toggle').checked;
+    const submitStreamingBtn = document.getElementById('submit-streaming-btn');
+
+    if (useStreaming && submitStreamingBtn) {
+        // Show submit button only in streaming mode when auto-submit is OFF
+        submitStreamingBtn.style.display = autoSubmit ? 'none' : '';
+    }
+};
 
 // Start recording audio from the user's microphone
 window.startRecording = function() {
@@ -93,6 +195,9 @@ window.startRecording = function() {
                 }
                 let rms = Math.sqrt(sumSquares / dataArray.length);
                 if (rms < silenceThreshold) {
+                    // User is not speaking
+                    isUserSpeaking = false;
+
                     if (!silenceStart) silenceStart = Date.now();
                     updatePauseTimer();
                     if (Date.now() - silenceStart > silenceDuration) {
@@ -106,6 +211,13 @@ window.startRecording = function() {
                         return;
                     }
                 } else {
+                    // User is speaking - cancel any pending auto-submission
+                    isUserSpeaking = true;
+                    if (autoSubmissionTimer) {
+                        clearTimeout(autoSubmissionTimer);
+                        autoSubmissionTimer = null;
+                    }
+
                     silenceStart = null;
                     updatePauseTimer();
                 }
@@ -118,7 +230,10 @@ window.startRecording = function() {
                 timerInterval = setInterval(updatePauseTimer, 100);
             }
 
-            // Stop recording automatically after 1 minute
+            // Stop recording automatically after configurable timeout
+            const timeoutSlider = document.getElementById('recording-timeout');
+            const timeoutSeconds = timeoutSlider ? parseInt(timeoutSlider.value) : 60; // Default to 60 seconds
+
             recordingTimeout = setTimeout(() => {
                 stream.getTracks().forEach(track => track.stop());
                 if (useStreaming) {
@@ -129,7 +244,7 @@ window.startRecording = function() {
                 audioContext.close();
                 document.getElementById('pause-timer').innerText = '';
                 if (timerInterval) clearInterval(timerInterval);
-            }, 60000);
+            }, timeoutSeconds * 1000); // Convert seconds to milliseconds
         });
 };
 
@@ -139,22 +254,29 @@ function isNoiseCancellationEnabled() {
     return noiseToggle && noiseToggle.checked;
 }
 
-// Handle streaming auto-stop - submit question to LLM automatically
+// Handle streaming auto-stop - submit question to LLM automatically only if auto-submit is enabled
 function handleStreamingAutoStop() {
     document.getElementById('recording-cue').style.display = 'none';
+    isUserSpeaking = false; // User stopped speaking
+
+    // Clear any pending auto-submission timer since recording stopped
+    if (autoSubmissionTimer) {
+        clearTimeout(autoSubmissionTimer);
+        autoSubmissionTimer = null;
+    }
 
     // Get the current transcribed text from the question box
     const questionText = document.getElementById('question-box').value.trim();
+    const autoSubmit = document.getElementById('auto-submit-toggle').checked;
 
     if (questionText) {
-        // Submit the transcribed question to LLM for answer generation
-        document.getElementById('result').innerText = 'Processing question...';
-
-        socket.emit('audio_blob', JSON.stringify({
-            text: questionText,  // Send as text instead of audio
-            language: window._selectedLanguage || 'en',
-            noise_cancellation: isNoiseCancellationEnabled()
-        }));
+        if (autoSubmit) {
+            // Set up immediate auto-submission since recording stopped
+            setupAutoSubmissionTimer();
+        } else {
+            // Auto-submit is disabled - just show a message that transcription is complete
+            document.getElementById('result').innerText = 'Transcription complete. Click "Submit Question" to get an answer.';
+        }
     } else {
         document.getElementById('result').innerText = 'No text transcribed to process.';
     }
@@ -162,6 +284,15 @@ function handleStreamingAutoStop() {
 
 // Send a single audio chunk to the streaming endpoint
 function sendAudioChunkStreaming(blob) {
+    // Cancel any pending auto-submission since user is speaking
+    if (autoSubmissionTimer) {
+        clearTimeout(autoSubmissionTimer);
+        autoSubmissionTimer = null;
+    }
+
+    // Mark user as speaking
+    isUserSpeaking = true;
+
     const reader = new FileReader();
     reader.onload = function() {
         const base64data = reader.result.split(',')[1];
@@ -183,6 +314,9 @@ function sendAudioChunkStreaming(blob) {
                 document.getElementById('question-box').value = data.partial_text;
                 // Store the latest transcription for auto-submission
                 window._latestStreamingText = data.partial_text;
+
+                // Set up auto-submission timer if auto-submit is enabled
+                setupAutoSubmissionTimer();
             }
         })
         .catch(err => {
@@ -190,6 +324,41 @@ function sendAudioChunkStreaming(blob) {
         });
     };
     reader.readAsDataURL(blob);
+}
+
+// Setup auto-submission timer for streaming mode
+function setupAutoSubmissionTimer() {
+    const autoSubmit = document.getElementById('auto-submit-toggle').checked;
+
+    if (!autoSubmit) return;
+
+    // Clear any existing timer
+    if (autoSubmissionTimer) {
+        clearTimeout(autoSubmissionTimer);
+    }
+
+    // Set new timer for 2 seconds
+    autoSubmissionTimer = setTimeout(() => {
+        const questionText = document.getElementById('question-box').value.trim();
+
+        if (questionText && !isUserSpeaking) {
+            // Auto-submit the transcribed question
+            document.getElementById('result').innerText = 'Auto-submitting question...';
+            document.getElementById('answer-box').value = ''; // Clear previous answer
+
+            // Show progress bar for auto-submit
+            showProgressBar('Processing your question...', 'Auto-submitting to AI model for analysis...');
+
+            socket.emit('audio_blob', JSON.stringify({
+                text: questionText,
+                language: window._selectedLanguage || 'en',
+                noise_cancellation: isNoiseCancellationEnabled()
+            }));
+
+            // Clear the timer
+            autoSubmissionTimer = null;
+        }
+    }, 2000); // 2 seconds delay
 }
 
 // Stop recording and process the audio
@@ -209,6 +378,10 @@ window.stopRecording = function() {
                 // Convert audio to base64 and emit to server via socket
                 let base64data = btoa(String.fromCharCode(...new Uint8Array(reader.result)));
                 const language = window._selectedLanguage || 'en';
+
+                // Show progress bar for voice processing
+                showProgressBar('Processing your voice...', 'Converting speech to text and generating response...');
+
                 socket.emit('audio_blob', JSON.stringify({
                     audio: base64data,
                     language: language,
@@ -234,9 +407,36 @@ window.playAudio = function() {
     }
 };
 
+// Submit streaming question manually
+window.submitStreamingQuestion = function() {
+    const questionText = document.getElementById('question-box').value.trim();
+
+    if (!questionText) {
+        document.getElementById('result').innerText = 'Please enter a question to submit.';
+        return;
+    }
+
+    // Show progress bar for manual submission
+    showProgressBar('Processing your question...', 'Submitting to AI model for analysis...');
+
+    // Submit the question to LLM for answer generation
+    document.getElementById('result').innerText = 'Processing question...';
+    document.getElementById('answer-box').value = ''; // Clear previous answer
+
+    socket.emit('audio_blob', JSON.stringify({
+        text: questionText,
+        language: window._selectedLanguage || 'en',
+        noise_cancellation: isNoiseCancellationEnabled()
+    }));
+};
+
 // Handle transcription updates from the server
 socket.on('transcription_update', function(data) {
     console.log('[DEBUG] Received transcription_update event:', data);
+
+    // Hide progress bar when we receive response
+    hideProgressBar();
+
     if (data.error || data.answer === 'Error processing audio.') {
         document.getElementById('result').innerText = 'Error: Audio upload or transcription failed.';
     } else {
@@ -302,6 +502,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const inputLanguage = document.getElementById('input-language');
             const language = inputLanguage ? inputLanguage.value : 'en';
             if (question) {
+                // Show progress bar for text submission
+                showProgressBar('Processing your question...', 'Submitting text question to AI model...');
+
                 socket.emit('audio_blob', JSON.stringify({text: question, language: language}));
                 document.getElementById('result').innerText = 'Submitting question...';
             }

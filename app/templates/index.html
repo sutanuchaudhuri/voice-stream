@@ -58,17 +58,27 @@
             <div class="col-md-12">
                 <div class="form-check form-switch mb-2">
                     <input class="form-check-input" type="checkbox" id="use-streaming" onchange="toggleStreamingUI()">
-                    <label class="form-check-label" for="use-streaming">Use streaming (auto-submit to LLM on pause)</label>
+                    <label class="form-check-label" for="use-streaming">Use streaming (transcribe to editable question box)</label>
                 </div>
                 <div class="form-check form-switch mb-2">
                     <input class="form-check-input" type="checkbox" id="noise-cancel-toggle">
                     <label class="form-check-label" for="noise-cancel-toggle">Noise Cancellation</label>
+                </div>
+                <!-- Auto Submit checkbox - only visible in streaming mode -->
+                <div class="form-check form-switch mb-2" id="auto-submit-group" style="display:none;">
+                    <input class="form-check-input" type="checkbox" id="auto-submit-toggle" onchange="toggleAutoSubmit()">
+                    <label class="form-check-label" for="auto-submit-toggle">Auto Submit (submit question automatically on pause)</label>
                 </div>
                 <div id="pause-interval-group" style="display:none;">
                     <label for="pause-interval" class="form-label">Pause detection interval (seconds):</label>
                     <input type="range" id="pause-interval" class="form-range w-auto d-inline-block" value="1" min="0" max="10" step="0.1" style="width:200px;">
                     <span id="pause-interval-value" class="ms-2">1.0</span>
                     <span id="pause-timer" class="ms-2 text-secondary"></span>
+                </div>
+                <div class="mb-2">
+                    <label for="recording-timeout" class="form-label">Maximum recording duration (seconds):</label>
+                    <input type="range" id="recording-timeout" class="form-range w-auto d-inline-block" value="60" min="10" max="300" step="10" style="width:200px;">
+                    <span id="recording-timeout-value" class="ms-2">60</span>
                 </div>
                 <button id="start-recording-btn" class="btn btn-primary btn-space" onclick="startRecording()">Start Recording</button>
                 <button id="stop-recording-btn" class="btn btn-danger btn-space" onclick="stopRecording()">Stop Recording</button>
@@ -81,6 +91,23 @@
                 <label for="question-box" class="form-label">Question:</label>
                 <textarea id="question-box" rows="2" class="form-control" style="resize:vertical;"></textarea>
                 <button id="submit-text-btn" class="btn btn-success btn-space mt-2" style="display:none;">Submit Question</button>
+                <!-- Submit button for streaming mode - only visible when streaming and not auto-submit -->
+                <button id="submit-streaming-btn" class="btn btn-success btn-space mt-2" style="display:none;" onclick="submitStreamingQuestion()">Submit Question</button>
+            </div>
+        </div>
+
+        <!-- Progress Bar for Question Processing -->
+        <div id="processing-progress" class="row mb-3" style="display:none;">
+            <div class="col-md-12">
+                <div class="d-flex align-items-center">
+                    <div class="progress flex-grow-1 me-3" style="height: 25px;">
+                        <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                        </div>
+                    </div>
+                    <span id="progress-text" class="text-muted">Processing...</span>
+                </div>
+                <small id="progress-detail" class="text-muted">Submitting question to AI model...</small>
             </div>
         </div>
 

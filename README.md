@@ -260,3 +260,177 @@ LOCAL_STORAGE_PATH=/mnt/shared/audio
 
 ---
 
+## 📤 Data Export System
+
+The Audio Annotation System includes a comprehensive export functionality that allows you to download all your project data in a structured format. This feature is essential for data analysis, backup, sharing, and integration with other systems.
+
+### Export Features
+
+- **🗜️ ZIP Package Export**: Complete project data packaged in a single downloadable ZIP file
+- **📊 CSV Data Export**: Structured annotation data in CSV format for easy analysis
+- **🎵 Audio File Package**: All available audio files included in the export
+- **📋 Detailed Documentation**: README file explaining the export contents
+- **⚠️ Missing File Handling**: Graceful handling of missing audio files with status tracking
+- **🔍 Comprehensive Metadata**: Full annotation history and project information
+
+### How to Export Project Data
+
+1. **Navigate to Audio Annotation System**: Go to `/audio-annotation` in your application
+2. **Select a Project**: Load the project you want to export
+3. **Click Export Data**: Use the "Export Data" button in the annotations section
+4. **Download Automatically**: ZIP file downloads automatically with timestamped filename
+
+### Export Package Contents
+
+When you export a project, you receive a ZIP file containing:
+
+```
+project_name_export_YYYYMMDD_HHMMSS.zip
+├── project_name_annotations.csv          # Complete annotation data
+├── audio_files/                          # Folder containing audio files
+│   ├── audio_1760145662474.wav          # Individual audio recordings
+│   ├── audio_1760145711771.wav
+│   └── ...
+└── README.txt                           # Export documentation
+```
+
+### CSV Schema and Structure
+
+The exported CSV file contains comprehensive annotation data with the following columns:
+
+#### CSV Column Definitions
+
+| Column Name | Data Type | Description | Example |
+|-------------|-----------|-------------|---------|
+| `audio_filename` | String | Name of the audio file | `audio_1760145662474.wav` |
+| `transcription` | String | Current transcript text | `"My name is Sutanu Chaudhuri."` |
+| `original_transcript` | String | Original transcript before any edits | `"My name is Sutanu Chaudhuri."` |
+| `duration_seconds` | Float | Audio duration in seconds | `2.52` |
+| `language` | String | Language code used for transcription | `en`, `hi`, `es` |
+| `recording_mode` | String | How the audio was recorded | `start-stop`, `streaming`, `batch-audio` |
+| `created_date` | DateTime | When annotation was first created | `2025-10-11 01:21:51` |
+| `updated_date` | DateTime | When annotation was last modified | `2025-10-11 01:21:59` |
+| `file_status` | String | Audio file availability status | `found`, `missing` |
+
+#### Sample CSV Data
+
+```csv
+audio_filename,transcription,original_transcript,duration_seconds,language,recording_mode,created_date,updated_date,file_status
+audio_1760145662474.wav,"Let's create an annotation","Let's create an annotation",2.34,en,start-stop,2025-10-11 01:21:02,2025-10-11 03:52:27,found
+audio_1760145711771.wav,"My name is Sutanu Chaudhuri.","My name is Sutanu Chaudhuri.",2.52,en,start-stop,2025-10-11 01:21:51,2025-10-11 01:21:59,missing
+audio_1760145775610.wav,"My wife's name is Sutapa Chaudhuri.","My wife's name is Sutapa Chaudhuri.",8.34,en,start-stop,2025-10-11 01:22:55,2025-10-11 02:42:54,found
+```
+
+### File Status Tracking
+
+The export system intelligently handles missing audio files:
+
+- **`found`**: Audio file successfully located and included in export
+- **`missing`**: Audio file referenced in database but not found on filesystem
+
+#### Missing File Scenarios
+
+Audio files may be missing due to:
+- Manual file deletion from filesystem
+- Storage migration or cleanup
+- Corrupted file systems
+- Network storage disconnection
+
+**Important**: Even if audio files are missing, their annotation data and transcriptions are preserved and included in the CSV export.
+
+### Export Processing Details
+
+#### Audio File Resolution Process
+
+1. **Storage Manager Lookup**: First attempts to load via configured storage system (local/S3)
+2. **Local Filesystem Fallback**: Searches local project directories if storage manager fails
+3. **Path Resolution**: Handles both absolute and relative file paths
+4. **Status Logging**: Detailed logging of found vs missing files
+
+#### Export Statistics
+
+Each export includes a summary in the README.txt file:
+
+```
+Audio Annotation Export - project_name
+=================================================
+
+Export Date: 2025-10-11 14:30:25
+Project: test_project
+Total Annotations: 4
+Audio Files Found: 2
+Audio Files Missing: 2
+
+Contents:
+- test_project_annotations.csv: All annotation data with transcriptions
+- audio_files/: Audio files that were found and successfully copied
+
+Note: Some audio files may be missing from the file system but their
+annotations and transcriptions are still included in the CSV file.
+```
+
+### API Endpoint
+
+The export functionality is available via REST API:
+
+```bash
+GET /api/annotation/export-project/<project_id>
+```
+
+**Response**: ZIP file download with content-type `application/zip`
+
+### Data Integration
+
+The exported CSV format is designed for easy integration with:
+
+- **📊 Data Analysis Tools**: Excel, Google Sheets, R, Python pandas
+- **🤖 Machine Learning Pipelines**: Training data for speech recognition models
+- **📈 Business Intelligence**: Tableau, Power BI, or custom dashboards
+- **🔄 Data Migration**: Moving data between Voice Stream instances
+- **📋 Audit and Compliance**: Complete audit trail of annotation activities
+
+### Export Best Practices
+
+#### For Data Analysis
+- Use `duration_seconds` to calculate total audio content
+- Filter by `language` for language-specific analysis
+- Track `recording_mode` to understand data collection methods
+- Compare `created_date` vs `updated_date` to identify edited annotations
+
+#### For Backup and Migration
+- Export regularly to ensure data backup
+- Verify `file_status` to identify missing audio files before migration
+- Use timestamps to track data freshness
+- Store exports in version control or backup systems
+
+#### For Quality Assurance
+- Review `original_transcript` vs `transcription` for editing patterns
+- Monitor `file_status` for data integrity issues
+- Track annotation creation patterns over time
+- Identify frequently edited transcriptions for quality improvement
+
+### Troubleshooting Export Issues
+
+#### Common Issues and Solutions
+
+1. **Empty ZIP File**: 
+   - Check if project has annotations
+   - Verify project ID is correct
+   - Ensure database connectivity
+
+2. **Missing Audio Files**:
+   - Check file system permissions
+   - Verify storage configuration
+   - Review file paths in database
+
+3. **Large Export Times**:
+   - Export during low-usage periods
+   - Consider chunked exports for large projects
+   - Check available disk space
+
+4. **CSV Encoding Issues**:
+   - CSV files use UTF-8 encoding
+   - Ensure proper encoding when opening in Excel
+   - Use text import wizard for special characters
+
+---

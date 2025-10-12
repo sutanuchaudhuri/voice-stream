@@ -925,10 +925,30 @@
         }
 
         function exportAnnotations() {
-            if (!currentProject) return;
+            if (!currentProject) {
+                showMessage('Please select a project first', 'warning');
+                return;
+            }
 
-            // Create CSV export
-            showMessage('Export functionality to be implemented', 'info');
+            // Show loading message
+            showMessage('Preparing export...', 'info');
+
+            // Call the export API endpoint
+            const exportUrl = `/api/annotation/export-project/${currentProject.id}`;
+
+            // Create a temporary link element to trigger download
+            const link = document.createElement('a');
+            link.href = exportUrl;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+
+            // Trigger download
+            link.click();
+
+            // Clean up
+            document.body.removeChild(link);
+
+            showMessage('Export started - download will begin shortly', 'success');
         }
 
         function formatDuration(seconds) {

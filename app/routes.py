@@ -8,6 +8,9 @@ import sqlite3
 import base64
 import time
 import json
+import zipfile
+import csv
+from datetime import datetime
 from dotenv import load_dotenv, find_dotenv
 from app.storage_manager import storage_manager
 from app.database_manager import database_manager
@@ -1258,3 +1261,175 @@ def transcribe_batch_audio():
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/annotation/export-project/<int:project_id>', methods=['GET'])
+def export_project_data(project_id):
+    """Export project data as ZIP file containing all audio files and CSV with annotations"""
+    try:
+        import tempfile
+        import shutil
+        from io import StringIO
+
+        # Get project info
+        projects = database_manager.get_projects()
+        project = next((p for p in projects if str(p['id']) == str(project_id)), None)
+
+        if not project:
+            return jsonify({'success': False, 'error': 'Project not found'}), 404
+
+        # Get all annotations for the project
+        annotations = database_manager.get_project_annotations(str(project_id))
+
+        if not annotations:
+            return jsonify({'success': False, 'error': 'No annotations found for this project'}), 404
+
+        # Create temporary directory for export
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create subdirectories
+            audio_dir = os.path.join(temp_dir, 'audio_files')
+            os.makedirs(audio_dir, exist_ok=True)
+
+            # Prepare CSV data
+            csv_data = []
+            csv_headers = ['audio_filename', 'transcription', 'original_transcript', 'duration_seconds', 'language', 'recording_mode', 'created_date', 'updated_date', 'file_status']
+
+            # Process each annotation
+            audio_files_found = 0
+            audio_files_missing = 0
+
+            for annotation in annotations:
+                file_status = 'missing'
+
+                try:
+                    # Try to copy audio file to temp directory
+                    audio_path = annotation['audio_path']
+                    audio_filename = annotation['audio_filename']
+                    target_audio_path = os.path.join(audio_dir, audio_filename)
+
+                    # Try to load file using storage manager first
+                    try:
+                        file_content = storage_manager.load_file(audio_path)
+                        if file_content:
+                            with open(target_audio_path, 'wb') as f:
+                                f.write(file_content)
+                            file_status = 'found'
+                            audio_files_found += 1
+                            print(f"[INFO] Audio file copied via storage manager: {audio_filename}")
+                        else:
+                            print(f"[WARN] Could not load audio file via storage manager: {audio_path}")
+                    except Exception as storage_error:
+                        print(f"[WARN] Storage manager failed for {audio_filename}: {storage_error}")
+
+                        # Fallback to local file system
+                        if not os.path.isabs(audio_path):
+                            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                            full_audio_path = os.path.join(project_root, audio_path)
+                        else:
+                            full_audio_path = audio_path
+
+                        if os.path.exists(full_audio_path):
+                            shutil.copy2(full_audio_path, target_audio_path)
+                            file_status = 'found'
+                            audio_files_found += 1
+                            print(f"[INFO] Audio file copied from local filesystem: {audio_filename}")
+                        else:
+                            print(f"[WARN] Audio file not found anywhere: {full_audio_path}")
+                            audio_files_missing += 1
+
+                except Exception as file_error:
+                    print(f"[ERROR] Error processing audio file for annotation {annotation.get('id')}: {file_error}")
+                    audio_files_missing += 1
+
+                # Always add annotation to CSV regardless of whether audio file was found
+                created_date = annotation.get('created_at', '')
+                updated_date = annotation.get('updated_at', '')
+
+                csv_row = [
+                    annotation.get('audio_filename', ''),
+                    annotation.get('transcript', ''),
+                    annotation.get('original_transcript', ''),
+                    annotation.get('duration', 0),
+                    annotation.get('language', 'en'),
+                    annotation.get('recording_mode', 'start-stop'),
+                    created_date,
+                    updated_date,
+                    file_status
+                ]
+                csv_data.append(csv_row)
+
+            # Create CSV file even if no audio files were found
+            csv_path = os.path.join(temp_dir, f"{project['project_name']}_annotations.csv")
+            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(csv_headers)
+                writer.writerows(csv_data)
+
+            print(f"[INFO] Export summary: {audio_files_found} audio files found, {audio_files_missing} missing")
+
+            # Create ZIP file
+            zip_filename = f"{project['project_name']}_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+            zip_path = os.path.join(temp_dir, zip_filename)
+
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                # Always add CSV file
+                zipf.write(csv_path, f"{project['project_name']}_annotations.csv")
+
+                # Add audio files if any were found
+                audio_files_in_zip = 0
+                for root, dirs, files in os.walk(audio_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.join('audio_files', file)
+                        zipf.write(file_path, arcname)
+                        audio_files_in_zip += 1
+
+                # Add a README file explaining the export
+                readme_content = f"""Audio Annotation Export - {project['project_name']}
+=================================================
+
+Export Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Project: {project['project_name']}
+Total Annotations: {len(annotations)}
+Audio Files Found: {audio_files_found}
+Audio Files Missing: {audio_files_missing}
+
+Contents:
+- {project['project_name']}_annotations.csv: All annotation data with transcriptions
+- audio_files/: Audio files that were found and successfully copied
+
+CSV Columns:
+- audio_filename: Name of the audio file
+- transcription: Current transcript text
+- original_transcript: Original transcript (if edited)
+- duration_seconds: Audio duration in seconds
+- language: Language used for transcription
+- recording_mode: Recording method (start-stop, streaming, batch-audio)
+- created_date: When annotation was created
+- updated_date: When annotation was last modified
+- file_status: 'found' if audio file is included, 'missing' if not found
+
+Note: Some audio files may be missing from the file system but their
+annotations and transcriptions are still included in the CSV file.
+"""
+
+                readme_path = os.path.join(temp_dir, 'README.txt')
+                with open(readme_path, 'w', encoding='utf-8') as readme_file:
+                    readme_file.write(readme_content)
+                zipf.write(readme_path, 'README.txt')
+
+            print(f"[INFO] Created ZIP file with {audio_files_in_zip} audio files and CSV data")
+
+            # Return the ZIP file
+            return send_file(
+                zip_path,
+                as_attachment=True,
+                download_name=zip_filename,
+                mimetype='application/zip'
+            )
+
+    except Exception as e:
+        print(f"[ERROR] Export failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': f'Export failed: {str(e)}'}), 500
+

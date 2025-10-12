@@ -291,7 +291,7 @@ class DatabaseManager:
         conn = sqlite3.connect(self.sqlite_db_path)
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT id, audio_filename, transcript, original_transcript, recording_mode,
+            SELECT id, audio_filename, audio_path, transcript, original_transcript, recording_mode,
                    language, duration, created_at, updated_at
             FROM annotations
             WHERE project_id = ? AND (deleted IS NULL OR deleted = 'N')
@@ -303,13 +303,14 @@ class DatabaseManager:
             annotations.append({
                 'id': str(row[0]),
                 'audio_filename': row[1],
-                'transcript': row[2],
-                'original_transcript': row[3],
-                'recording_mode': row[4],
-                'language': row[5],
-                'duration': row[6],
-                'created_at': row[7],
-                'updated_at': row[8]
+                'audio_path': row[2],
+                'transcript': row[3],
+                'original_transcript': row[4] if row[4] else '',
+                'recording_mode': row[5],
+                'language': row[6] if row[6] else 'en',
+                'duration': row[7] if row[7] else 0,
+                'created_at': row[8],
+                'updated_at': row[9]
             })
         conn.close()
         return annotations
@@ -454,6 +455,7 @@ class DatabaseManager:
                 annotations.append({
                     'id': item['id'],
                     'audio_filename': item['audio_filename'],
+                    'audio_path': item['audio_path'],
                     'transcript': item['transcript'],
                     'original_transcript': item.get('original_transcript', ''),
                     'recording_mode': item['recording_mode'],
